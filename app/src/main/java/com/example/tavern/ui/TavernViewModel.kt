@@ -3,6 +3,7 @@ package com.example.tavern.ui
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.example.tavern.data.CommentEntity
 import com.example.tavern.data.PostEntity
 import com.example.tavern.data.TavernRepository
 import com.example.tavern.data.UserEntity
@@ -25,6 +26,45 @@ class TavernViewModel(private val repository: TavernRepository) : ViewModel() {
     // Tracks login errors (like "Wrong password")
     private val _loginError = MutableStateFlow<String?>(null)
     val loginError = _loginError.asStateFlow()
+
+    private val _selectedPost = MutableStateFlow<PostEntity?>(null)
+    val selectedPost = _selectedPost.asStateFlow()
+
+    // Tracks the comments for the *specific* selected post
+    private val _currentComments = MutableStateFlow<List<CommentEntity>>(emptyList())
+    val currentComments = _currentComments.asStateFlow()
+
+    // Function to open a post and fetch its comments
+    fun selectPost(post: PostEntity?) {
+        _selectedPost.value = post
+
+        if (post != null) {
+            // If we opened a post, listen to the database for comments on THIS post ID
+            viewModelScope.launch {
+                repository.getComments(post.id).collect { comments ->
+                    _currentComments.value = comments
+                }
+            }
+        } else {
+            // If we closed the post (went back), clear the comments list
+            _currentComments.value = emptyList()
+        }
+    }
+
+    // Function to write a new comment
+    fun addComment(content: String) {
+        val post = _selectedPost.value ?: return // Safety check: must have a post open
+        val authorName = _currentUser.value?.username ?: "Anonymous"
+
+        viewModelScope.launch {
+            val newComment = CommentEntity(
+                postId = post.id,
+                author = authorName,
+                content = content
+            )
+            repository.addComment(newComment)
+        }
+    }
 
     fun login(user: String, pass: String) {
         viewModelScope.launch {
@@ -51,6 +91,7 @@ class TavernViewModel(private val repository: TavernRepository) : ViewModel() {
 
     fun logout() {
         _currentUser.value = null
+        selectPost(null) // Close the selected Post
     }
 
     fun createPost(title: String, content: String) {

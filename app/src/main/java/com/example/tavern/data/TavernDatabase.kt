@@ -4,12 +4,14 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
-import kotlinx.coroutines.flow.Flow
 
-@Database(entities = [PostEntity::class, UserEntity::class], version = 2, exportSchema = false)
+
+@Database(entities = [PostEntity::class, UserEntity::class, CommentEntity::class], version = 3, exportSchema = false)
 abstract class TavernDatabase : RoomDatabase() {
     abstract fun postDao(): PostDao
     abstract fun userDao(): UserDao
+    abstract fun commentDao(): CommentDao
+
 
     companion object {
         @Volatile
