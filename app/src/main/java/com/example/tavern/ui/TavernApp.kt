@@ -1,20 +1,18 @@
 package com.example.tavern.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import com.example.tavern.ui.RegisterScreen
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.HistoryEdu
 import androidx.compose.material.icons.filled.LocalBar
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -25,41 +23,48 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.tavern.data.PostEntity
 import com.example.tavern.data.TavernDatabase
 import com.example.tavern.data.TavernRepository
+import com.example.tavern.data.CommentEntity
+import androidx.compose.material.icons.automirrored.filled.Send
 
 @Composable
 fun TavernApp() {
     val context = LocalContext.current
     val database = TavernDatabase.getDatabase(context)
-    val repository = TavernRepository(database.postDao(), database.userDao())
+    val repository = TavernRepository(database.postDao(), database.userDao(), database.commentDao())
     val viewModel: TavernViewModel = viewModel(factory = TavernViewModelFactory(repository))
 
     val currentUser by viewModel.currentUser.collectAsState()
+    val selectedPost by viewModel.selectedPost.collectAsState()
+
 
     // State to toggle between Login and Register screens
     var isRegistering by remember { mutableStateOf(false) }
 
     // --- NAVIGATION LOGIC ---
     if (currentUser != null) {
-        // If logged in, go straight to the Tavern
-        TavernFeedScreen(viewModel, currentUser!!.username)
+        // If logged in, check if we are looking at a specific post
+        if (selectedPost != null) {
+            PostDetailScreen(viewModel) // <--- NEW SCREEN
+        } else {
+            TavernFeedScreen(viewModel, currentUser!!.username)
+        }
     } else {
         // If not logged in, decide which form to show
         if (isRegistering) {
             RegisterScreen(
                 viewModel = viewModel,
-                onBackToLogin = { isRegistering = false } // Go back button
+                onBackToLogin = { isRegistering = false }
             )
         } else {
             LoginScreen(
                 viewModel = viewModel,
-                onNavigateToRegister = { isRegistering = true } // Go to register button
+                onNavigateToRegister = { isRegistering = true }
             )
         }
     }
@@ -134,7 +139,9 @@ fun LoginScreen(viewModel: TavernViewModel, onNavigateToRegister: () -> Unit) {
         // Login Button
         Button(
             onClick = { viewModel.login(username, password) },
-            modifier = Modifier.fillMaxWidth().height(50.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(50.dp),
             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
             shape = RoundedCornerShape(8.dp)
         ) {
@@ -191,7 +198,7 @@ fun TavernFeedScreen(viewModel: TavernViewModel, username: String) {
         },
         containerColor = MaterialTheme.colorScheme.background
     ) { padding ->
-        PostList(posts = posts, modifier = Modifier.padding(padding))
+        PostList(posts = posts, viewModel = viewModel, modifier = Modifier.padding(padding))
 
         if (showDialog) {
             AddPostDialog(
@@ -205,8 +212,78 @@ fun TavernFeedScreen(viewModel: TavernViewModel, username: String) {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PostList(posts: List<PostEntity>, modifier: Modifier = Modifier) {
+fun PostDetailScreen(viewModel: TavernViewModel) {
+    val post = viewModel.selectedPost.collectAsState().value ?: return
+    val comments by viewModel.currentComments.collectAsState()
+    var newCommentText by remember { mutableStateOf("") }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Discussion", fontFamily = FontFamily.Serif) },
+                navigationIcon = {
+                    IconButton(onClick = { viewModel.selectPost(null) }) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
+            )
+        },
+        bottomBar = {
+            Surface(tonalElevation = 2.dp) {
+                Row(
+                    modifier = Modifier.padding(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedTextField(
+                        value = newCommentText,
+                        onValueChange = { newCommentText = it },
+                        placeholder = { Text("Add a comment...") },
+                        modifier = Modifier.weight(1f),
+                        maxLines = 3
+                    )
+                    IconButton(onClick = {
+                        if (newCommentText.isNotBlank()) {
+                            viewModel.addComment(newCommentText)
+                            newCommentText = ""
+                        }
+                    }) {
+                        Icon(Icons.AutoMirrored.Filled.Send, "Send", tint = MaterialTheme.colorScheme.primary)
+                    }
+                }
+            }
+        }
+    ) { padding ->
+        LazyColumn(
+            modifier = Modifier
+                .padding(padding)
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background),
+            contentPadding = PaddingValues(16.dp)
+        ) {
+            item {
+                PostCard(post, onClick = {}) // Show post, but no click action needed here
+                Spacer(modifier = Modifier.height(16.dp))
+                Text("Comments", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+
+            if (comments.isEmpty()) {
+                item { Text("No voices yet. Be the first!", fontStyle = FontStyle.Italic, color = Color.Gray) }
+            } else {
+                items(comments) { comment ->
+                    CommentItem(comment)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+
+fun PostList(posts: List<PostEntity>, viewModel: TavernViewModel, modifier: Modifier = Modifier) {
     if (posts.isEmpty()) {
         Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -222,16 +299,18 @@ fun PostList(posts: List<PostEntity>, modifier: Modifier = Modifier) {
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             items(posts, key = { it.id }) { post ->
-                PostCard(post)
+                PostCard(post, onClick = { viewModel.selectPost(post) })
             }
         }
     }
 }
 
 @Composable
-fun PostCard(post: PostEntity) {
+fun PostCard(post: PostEntity, onClick: () -> Unit) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
         shape = RoundedCornerShape(4.dp)
@@ -248,6 +327,29 @@ fun PostCard(post: PostEntity) {
                 Spacer(Modifier.width(4.dp))
                 Text(text = "${post.upvotes} Cheers", color = MaterialTheme.colorScheme.secondary, fontWeight = FontWeight.Bold)
             }
+        }
+    }
+}
+
+@Composable
+fun CommentItem(comment: CommentEntity) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Column(modifier = Modifier.padding(vertical = 8.dp, horizontal = 12.dp)) {
+            Text(
+                text = comment.author,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.secondary
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = comment.content,
+                style = MaterialTheme.typography.bodyMedium
+            )
         }
     }
 }
