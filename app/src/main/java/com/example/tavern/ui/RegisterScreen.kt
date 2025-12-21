@@ -44,6 +44,7 @@ fun RegisterScreen(viewModel: TavernViewModel, onBackToLogin: () -> Unit) {
     
     // ViewModel error (e.g., User already exists)
     val vmError by viewModel.loginError.collectAsState()
+    val isLoading by viewModel.isLoading.collectAsState()
 
     // Combined error
     val displayError = validationError ?: vmError
@@ -154,6 +155,7 @@ fun RegisterScreen(viewModel: TavernViewModel, onBackToLogin: () -> Unit) {
                     )
                 },
                 singleLine = true,
+                enabled = !isLoading,
                 modifier = Modifier
                     .fillMaxWidth()
                     .slideInFromBottomOnAppear(delayMillis = 300),
@@ -186,7 +188,10 @@ fun RegisterScreen(viewModel: TavernViewModel, onBackToLogin: () -> Unit) {
                 else 
                     PasswordVisualTransformation(),
                 trailingIcon = {
-                    IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                    IconButton(
+                        onClick = { passwordVisible = !passwordVisible },
+                        enabled = !isLoading
+                    ) {
                         Icon(
                             imageVector = if (passwordVisible) 
                                 Icons.Filled.Visibility 
@@ -201,6 +206,7 @@ fun RegisterScreen(viewModel: TavernViewModel, onBackToLogin: () -> Unit) {
                     }
                 },
                 singleLine = true,
+                enabled = !isLoading,
                 modifier = Modifier
                     .fillMaxWidth()
                     .slideInFromBottomOnAppear(delayMillis = 400),
@@ -233,7 +239,10 @@ fun RegisterScreen(viewModel: TavernViewModel, onBackToLogin: () -> Unit) {
                 else 
                     PasswordVisualTransformation(),
                 trailingIcon = {
-                    IconButton(onClick = { confirmPasswordVisible = !confirmPasswordVisible }) {
+                    IconButton(
+                        onClick = { confirmPasswordVisible = !confirmPasswordVisible },
+                        enabled = !isLoading
+                    ) {
                         Icon(
                             imageVector = if (confirmPasswordVisible) 
                                 Icons.Filled.Visibility 
@@ -248,6 +257,7 @@ fun RegisterScreen(viewModel: TavernViewModel, onBackToLogin: () -> Unit) {
                     }
                 },
                 singleLine = true,
+                enabled = !isLoading,
                 modifier = Modifier
                     .fillMaxWidth()
                     .slideInFromBottomOnAppear(delayMillis = 500)
@@ -342,22 +352,31 @@ fun RegisterScreen(viewModel: TavernViewModel, onBackToLogin: () -> Unit) {
                 elevation = ButtonDefaults.buttonElevation(
                     defaultElevation = 4.dp,
                     pressedElevation = 8.dp
-                )
+                ),
+                enabled = !isLoading
             ) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        Icons.Default.HistoryEdu,
-                        null,
-                        modifier = Modifier.size(20.dp)
+                if (isLoading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(24.dp),
+                        color = MaterialTheme.colorScheme.onSecondary,
+                        strokeWidth = 2.dp
                     )
-                    Text(
-                        "Join the Guild",
-                        style = ButtonText,
-                        color = MaterialTheme.colorScheme.onSecondary
-                    )
+                } else {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Default.HistoryEdu,
+                            null,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Text(
+                            "Join the Guild",
+                            style = ButtonText,
+                            color = MaterialTheme.colorScheme.onSecondary
+                        )
+                    }
                 }
             }
 
@@ -366,7 +385,8 @@ fun RegisterScreen(viewModel: TavernViewModel, onBackToLogin: () -> Unit) {
             // Already have account with fade animation
             TextButton(
                 onClick = onBackToLogin,
-                modifier = Modifier.fadeInOnAppear(delayMillis = 700)
+                modifier = Modifier.fadeInOnAppear(delayMillis = 700),
+                enabled = !isLoading
             ) {
                 Text(
                     "Already have a legend? Enter here",

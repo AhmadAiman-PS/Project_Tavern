@@ -12,10 +12,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.HistoryEdu
-import androidx.compose.material.icons.filled.LocalBar
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -37,6 +34,8 @@ import com.example.tavern.data.TavernDatabase
 import com.example.tavern.data.TavernRepository
 import com.example.tavern.data.CommentEntity
 import com.example.tavern.ui.theme.*
+import java.text.SimpleDateFormat
+import java.util.*
 
 @Composable
 fun TavernApp() {
@@ -47,13 +46,18 @@ fun TavernApp() {
 
     val currentUser by viewModel.currentUser.collectAsState()
     val selectedPost by viewModel.selectedPost.collectAsState()
+    val profileUser by viewModel.profileUser.collectAsState()
 
     // State to toggle between Login and Register screens
     var isRegistering by remember { mutableStateOf(false) }
+    
+    // Track where we came from for proper back navigation
+    var cameFromProfile by remember { mutableStateOf(false) }
 
     // --- NAVIGATION LOGIC WITH ANIMATIONS ---
     AnimatedContent(
         targetState = when {
+            currentUser != null && profileUser != null -> "profile"
             currentUser != null && selectedPost != null -> "detail"
             currentUser != null -> "feed"
             isRegistering -> "register"
@@ -72,7 +76,27 @@ fun TavernApp() {
         label = "screen_transition"
     ) { screen ->
         when (screen) {
-            "detail" -> PostDetailScreen(viewModel)
+            "profile" -> {
+                cameFromProfile = false
+                ProfileScreen(
+                    viewModel = viewModel,
+                    onBack = { viewModel.exitProfile() },
+                    onPostClick = { post ->
+                        cameFromProfile = true
+                        viewModel.selectPost(post)
+                    }
+                )
+            }
+            "detail" -> PostDetailScreen(
+                viewModel = viewModel,
+                onBack = {
+                    viewModel.selectPost(null)
+                    if (cameFromProfile) {
+                        // Stay in profile, don't exit
+                        cameFromProfile = false
+                    }
+                }
+            )
             "feed" -> TavernFeedScreen(viewModel, currentUser!!.username)
             "register" -> RegisterScreen(
                 viewModel = viewModel,
@@ -92,6 +116,7 @@ fun LoginScreen(viewModel: TavernViewModel, onNavigateToRegister: () -> Unit) {
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     val error by viewModel.loginError.collectAsState()
+    val isLoading by viewModel.isLoading.collectAsState()
     var triggerShake by remember { mutableStateOf(false) }
 
     // Trigger shake animation when error occurs
@@ -162,6 +187,7 @@ fun LoginScreen(viewModel: TavernViewModel, onNavigateToRegister: () -> Unit) {
                     Icon(Icons.Default.Person, null, tint = MaterialTheme.colorScheme.primary) 
                 },
                 singleLine = true,
+                enabled = !isLoading,
                 modifier = Modifier
                     .fillMaxWidth()
                     .slideInFromBottomOnAppear(delayMillis = 300),
@@ -184,6 +210,7 @@ fun LoginScreen(viewModel: TavernViewModel, onNavigateToRegister: () -> Unit) {
                 },
                 visualTransformation = PasswordVisualTransformation(),
                 singleLine = true,
+                enabled = !isLoading,
                 modifier = Modifier
                     .fillMaxWidth()
                     .slideInFromBottomOnAppear(delayMillis = 400)
@@ -222,7 +249,7 @@ fun LoginScreen(viewModel: TavernViewModel, onNavigateToRegister: () -> Unit) {
 
             Spacer(modifier = Modifier.height(32.dp))
 
-            // Login Button with bounce animation
+            // Login Button with loading state
             Button(
                 onClick = { viewModel.login(username, password) },
                 modifier = Modifier
@@ -236,13 +263,22 @@ fun LoginScreen(viewModel: TavernViewModel, onNavigateToRegister: () -> Unit) {
                 elevation = ButtonDefaults.buttonElevation(
                     defaultElevation = 4.dp,
                     pressedElevation = 8.dp
-                )
+                ),
+                enabled = !isLoading
             ) {
-                Text(
-                    "Enter Tavern",
-                    style = ButtonText,
-                    color = MaterialTheme.colorScheme.onPrimary
-                )
+                if (isLoading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(24.dp),
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        strokeWidth = 2.dp
+                    )
+                } else {
+                    Text(
+                        "Enter Tavern",
+                        style = ButtonText,
+                        color = MaterialTheme.colorScheme.onPrimary
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -250,7 +286,8 @@ fun LoginScreen(viewModel: TavernViewModel, onNavigateToRegister: () -> Unit) {
             // Switch to Register with fade animation
             TextButton(
                 onClick = onNavigateToRegister,
-                modifier = Modifier.fadeInOnAppear(delayMillis = 600)
+                modifier = Modifier.fadeInOnAppear(delayMillis = 600),
+                enabled = !isLoading
             ) {
                 Text(
                     "New here? Sign the Guestbook (Register)",
@@ -267,30 +304,111 @@ fun LoginScreen(viewModel: TavernViewModel, onNavigateToRegister: () -> Unit) {
 @Composable
 fun TavernFeedScreen(viewModel: TavernViewModel, username: String) {
     val posts by viewModel.uiState.collectAsState()
+    val searchQuery by viewModel.searchQuery.collectAsState()
+    val isSearching by viewModel.isSearching.collectAsState()
+    val searchResults by viewModel.searchResults.collectAsState()
     var showDialog by remember { mutableStateOf(false) }
+    var showSearchBar by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
                 title = {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.fadeInOnAppear(delayMillis = 100)
-                    ) {
-                        Text(
-                            "The Tavern Board",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontFamily = FontFamily.Serif,
-                            fontWeight = FontWeight.Bold
+                    if (showSearchBar) {
+                        OutlinedTextField(
+                            value = searchQuery,
+                            onValueChange = { viewModel.updateSearchQuery(it) },
+                            placeholder = { 
+                                Text(
+                                    "Search posts...",
+                                    color = Color.Black.copy(alpha = 0.6f)
+                                ) 
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth(0.9f)
+                                .height(48.dp), // Dikecilkan dari default
+                            singleLine = true,
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Default.Search,
+                                    null,
+                                    tint = Color.Black.copy(alpha = 0.7f)
+                                )
+                            },
+                            trailingIcon = {
+                                IconButton(onClick = { 
+                                    viewModel.clearSearch()
+                                    showSearchBar = false
+                                }) {
+                                    Icon(
+                                        Icons.Default.Close,
+                                        null,
+                                        tint = Color.Black.copy(alpha = 0.7f)
+                                    )
+                                }
+                            },
+                            shape = TextFieldShape,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedContainerColor = Color.White,
+                                unfocusedContainerColor = Color.White,
+                                focusedBorderColor = Color.Black.copy(alpha = 0.5f),
+                                unfocusedBorderColor = Color.Black.copy(alpha = 0.3f),
+                                focusedTextColor = Color.Black,
+                                unfocusedTextColor = Color.Black,
+                                cursorColor = Color.Black,
+                                focusedLeadingIconColor = Color.Black.copy(alpha = 0.7f),
+                                unfocusedLeadingIconColor = Color.Black.copy(alpha = 0.5f),
+                                focusedTrailingIconColor = Color.Black.copy(alpha = 0.7f),
+                                unfocusedTrailingIconColor = Color.Black.copy(alpha = 0.5f)
+                            ),
+                            textStyle = MaterialTheme.typography.bodyMedium.copy(
+                                color = Color.Black
+                            )
                         )
-                        Text(
-                            "Welcome, $username",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f)
+                    } else {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.fadeInOnAppear(delayMillis = 100)
+                        ) {
+                            Text(
+                                "The Tavern Board",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontFamily = FontFamily.Serif,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                "Welcome, $username",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f)
+                            )
+                        }
+                    }
+                },
+                navigationIcon = {
+                    IconButton(
+                        onClick = { viewModel.viewProfile(username) },
+                        modifier = Modifier.bounceOnAppear()
+                    ) {
+                        Icon(
+                            Icons.Default.Person,
+                            contentDescription = "Profile",
+                            tint = MaterialTheme.colorScheme.onPrimary
                         )
                     }
                 },
                 actions = {
+                    if (!showSearchBar) {
+                        IconButton(
+                            onClick = { showSearchBar = true },
+                            modifier = Modifier.bounceOnAppear()
+                        ) {
+                            Icon(
+                                Icons.Default.Search,
+                                contentDescription = "Search",
+                                tint = MaterialTheme.colorScheme.onPrimary
+                            )
+                        }
+                    }
                     IconButton(
                         onClick = { viewModel.logout() },
                         modifier = Modifier.bounceOnAppear()
@@ -328,10 +446,50 @@ fun TavernFeedScreen(viewModel: TavernViewModel, username: String) {
         },
         containerColor = MaterialTheme.colorScheme.background
     ) { padding ->
-        PostList(posts = posts, viewModel = viewModel, modifier = Modifier.padding(padding))
+        val displayPosts = if (isSearching) searchResults else posts
+        
+        Column(
+            modifier = Modifier
+                .padding(padding)
+                .fillMaxSize()
+        ) {
+            // Show search indicator
+            if (isSearching) {
+                Surface(
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Search,
+                            null,
+                            tint = MaterialTheme.colorScheme.secondary
+                        )
+                        Text(
+                            "Found ${searchResults.size} posts matching \"$searchQuery\"",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+            }
+            
+            PostList(
+                posts = displayPosts,
+                viewModel = viewModel,
+                modifier = Modifier.weight(1f),
+                emptyMessage = if (isSearching) "No posts found" else "No tales yet..."
+            )
+        }
 
         if (showDialog) {
             AddPostDialog(
+                viewModel = viewModel,
                 onDismiss = { showDialog = false },
                 onConfirm = { title, body ->
                     viewModel.createPost(title, body)
@@ -345,9 +503,10 @@ fun TavernFeedScreen(viewModel: TavernViewModel, username: String) {
 // --- SCREEN 3: POST DETAIL (Discussion) ---
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PostDetailScreen(viewModel: TavernViewModel) {
+fun PostDetailScreen(viewModel: TavernViewModel, onBack: () -> Unit) {
     val post = viewModel.selectedPost.collectAsState().value ?: return
     val comments by viewModel.currentComments.collectAsState()
+    val isLoading by viewModel.isLoading.collectAsState()
     var newCommentText by remember { mutableStateOf("") }
 
     Scaffold(
@@ -363,7 +522,7 @@ fun PostDetailScreen(viewModel: TavernViewModel) {
                 },
                 navigationIcon = {
                     IconButton(
-                        onClick = { viewModel.selectPost(null) },
+                        onClick = onBack,
                         modifier = Modifier.bounceOnAppear()
                     ) {
                         Icon(
@@ -399,6 +558,7 @@ fun PostDetailScreen(viewModel: TavernViewModel) {
                         placeholder = { Text("Add your voice...") },
                         modifier = Modifier.weight(1f),
                         maxLines = 3,
+                        enabled = !isLoading,
                         shape = TextFieldShape,
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedBorderColor = MaterialTheme.colorScheme.primary,
@@ -416,11 +576,19 @@ fun PostDetailScreen(viewModel: TavernViewModel) {
                         contentColor = MaterialTheme.colorScheme.onPrimary,
                         modifier = Modifier.size(56.dp)
                     ) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.Send,
-                            "Send",
-                            modifier = Modifier.size(24.dp)
-                        )
+                        if (isLoading) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(24.dp),
+                                color = MaterialTheme.colorScheme.onPrimary,
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            Icon(
+                                Icons.AutoMirrored.Filled.Send,
+                                "Send",
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
                     }
                 }
             }
@@ -435,7 +603,7 @@ fun PostDetailScreen(viewModel: TavernViewModel) {
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             item {
-                PostCard(post, onClick = {}, isDetail = true)
+                PostCard(post, onClick = {}, isDetail = true, viewModel = viewModel)
                 Spacer(modifier = Modifier.height(8.dp))
                 HorizontalDivider(
                     color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
@@ -512,7 +680,12 @@ fun PostDetailScreen(viewModel: TavernViewModel) {
 
 // --- POST LIST COMPONENT ---
 @Composable
-fun PostList(posts: List<PostEntity>, viewModel: TavernViewModel, modifier: Modifier = Modifier) {
+fun PostList(
+    posts: List<PostEntity>,
+    viewModel: TavernViewModel,
+    modifier: Modifier = Modifier,
+    emptyMessage: String = "No tales yet..."
+) {
     if (posts.isEmpty()) {
         Box(
             modifier = modifier.fillMaxSize(),
@@ -532,16 +705,18 @@ fun PostList(posts: List<PostEntity>, viewModel: TavernViewModel, modifier: Modi
                 )
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(
-                    "No tales yet...",
+                    emptyMessage,
                     style = MaterialTheme.typography.headlineSmall,
                     fontFamily = FontFamily.Serif,
                     color = MaterialTheme.colorScheme.outline
                 )
-                Text(
-                    "Be the first to share your story!",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.7f)
-                )
+                if (emptyMessage == "No tales yet...") {
+                    Text(
+                        "Be the first to share your story!",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.7f)
+                    )
+                }
             }
         }
     } else {
@@ -557,7 +732,8 @@ fun PostList(posts: List<PostEntity>, viewModel: TavernViewModel, modifier: Modi
                 PostCard(
                     post = post,
                     onClick = { viewModel.selectPost(post) },
-                    modifier = Modifier.fadeInOnAppear(delayMillis = index * 50)
+                    modifier = Modifier.fadeInOnAppear(delayMillis = index * 50),
+                    viewModel = viewModel
                 )
             }
         }
@@ -570,7 +746,8 @@ fun PostCard(
     post: PostEntity,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    isDetail: Boolean = false
+    isDetail: Boolean = false,
+    viewModel: TavernViewModel? = null
 ) {
     Card(
         modifier = modifier
@@ -586,28 +763,68 @@ fun PostCard(
         shape = PostCardShape
     ) {
         Column(modifier = Modifier.padding(20.dp)) {
-            // Author badge
-            Surface(
-                color = MaterialTheme.colorScheme.primaryContainer,
-                shape = Shapes.small,
-                modifier = Modifier.fadeInOnAppear(delayMillis = 100)
+            // Author badge and timestamp row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                // Author badge (clickable)
+                Surface(
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    shape = Shapes.small,
+                    modifier = Modifier
+                        .fadeInOnAppear(delayMillis = 100)
+                        .then(
+                            if (viewModel != null && !isDetail) {
+                                Modifier.clickable {
+                                    viewModel.viewProfile(post.author)
+                                }
+                            } else Modifier
+                        )
                 ) {
-                    Icon(
-                        Icons.Default.Person,
-                        null,
-                        modifier = Modifier.size(14.dp),
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                    Text(
-                        text = post.author,
-                        style = AuthorName.copy(fontWeight = FontWeight.Bold),
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Person,
+                            null,
+                            modifier = Modifier.size(14.dp),
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                        Text(
+                            text = post.author,
+                            style = AuthorName.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
+                }
+                
+                // Timestamp
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    shape = Shapes.small,
+                    modifier = Modifier.fadeInOnAppear(delayMillis = 150)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Schedule,
+                            null,
+                            modifier = Modifier.size(12.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                        )
+                        Text(
+                            text = formatTimestamp(post.timestamp),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                        )
+                    }
                 }
             }
             
@@ -717,12 +934,13 @@ fun CommentItem(comment: CommentEntity, index: Int) {
 
 // --- ADD POST DIALOG ---
 @Composable
-fun AddPostDialog(onDismiss: () -> Unit, onConfirm: (String, String) -> Unit) {
+fun AddPostDialog(viewModel: TavernViewModel, onDismiss: () -> Unit, onConfirm: (String, String) -> Unit) {
     var title by remember { mutableStateOf("") }
     var body by remember { mutableStateOf("") }
+    val isLoading by viewModel.isLoading.collectAsState()
     
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { if (!isLoading) onDismiss() },
         title = {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -744,7 +962,8 @@ fun AddPostDialog(onDismiss: () -> Unit, onConfirm: (String, String) -> Unit) {
                     label = { Text("Title") },
                     modifier = Modifier.fillMaxWidth(),
                     shape = TextFieldShape,
-                    singleLine = true
+                    singleLine = true,
+                    enabled = !isLoading
                 )
                 OutlinedTextField(
                     value = body,
@@ -752,24 +971,55 @@ fun AddPostDialog(onDismiss: () -> Unit, onConfirm: (String, String) -> Unit) {
                     label = { Text("Your Story") },
                     modifier = Modifier.fillMaxWidth(),
                     maxLines = 6,
-                    shape = TextFieldShape
+                    shape = TextFieldShape,
+                    enabled = !isLoading
                 )
             }
         },
         confirmButton = {
             Button(
                 onClick = { if (title.isNotBlank()) onConfirm(title, body) },
-                shape = ButtonShape
+                shape = ButtonShape,
+                enabled = !isLoading && title.isNotBlank()
             ) {
-                Text("Post", style = MaterialTheme.typography.labelLarge)
+                if (isLoading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        strokeWidth = 2.dp
+                    )
+                } else {
+                    Text("Post", style = MaterialTheme.typography.labelLarge)
+                }
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
+            TextButton(
+                onClick = onDismiss,
+                enabled = !isLoading
+            ) {
                 Text("Cancel")
             }
         },
         shape = DialogShape,
         containerColor = MaterialTheme.colorScheme.surface
     )
+}
+
+// Helper function to format timestamp
+private fun formatTimestamp(timestamp: Long): String {
+    val now = System.currentTimeMillis()
+    val diff = now - timestamp
+    
+    return when {
+        diff < 60000 -> "Just now" // Less than 1 minute
+        diff < 3600000 -> "${diff / 60000}m ago" // Less than 1 hour
+        diff < 86400000 -> "${diff / 3600000}h ago" // Less than 1 day
+        diff < 604800000 -> "${diff / 86400000}d ago" // Less than 1 week
+        else -> {
+            // More than 1 week, show date
+            val sdf = SimpleDateFormat("MMM dd", Locale.getDefault())
+            sdf.format(Date(timestamp))
+        }
+    }
 }

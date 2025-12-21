@@ -18,63 +18,63 @@ import kotlinx.coroutines.delay
 /**
  * TAVERN VIEW MODEL
  * Manages UI state and business logic for the Tavern app
- * Enhanced with loading states and better error handling
+ * Enhanced with loading states and Coroutines simulation
  */
 class TavernViewModel(private val repository: TavernRepository) : ViewModel() {
 
     // ===== POSTS STATE =====
-    /**
-     * Flow of all posts from the database
-     * Automatically updates when posts change
-     */
     val uiState: StateFlow<List<PostEntity>> = repository.allPosts
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // ===== USER STATE =====
-    /**
-     * Current logged-in user
-     * Null means user is logged out
-     */
     private val _currentUser = MutableStateFlow<UserEntity?>(null)
     val currentUser = _currentUser.asStateFlow()
 
-    /**
-     * Login/Registration error messages
-     * Null means no error
-     */
     private val _loginError = MutableStateFlow<String?>(null)
     val loginError = _loginError.asStateFlow()
 
     /**
      * Loading state for async operations
+     * TRUE = Operation in progress (show loading indicator)
+     * FALSE = Operation complete (hide loading indicator)
      */
     private val _isLoading = MutableStateFlow(false)
     val isLoading = _isLoading.asStateFlow()
 
     // ===== POST DETAIL STATE =====
-    /**
-     * Currently selected post for detail view
-     * Null means no post is selected (showing feed)
-     */
     private val _selectedPost = MutableStateFlow<PostEntity?>(null)
     val selectedPost = _selectedPost.asStateFlow()
 
-    /**
-     * Comments for the currently selected post
-     * Empty list when no post is selected
-     */
     private val _currentComments = MutableStateFlow<List<CommentEntity>>(emptyList())
     val currentComments = _currentComments.asStateFlow()
+
+    // ===== SEARCH STATE =====
+    private val _searchQuery = MutableStateFlow("")
+    val searchQuery = _searchQuery.asStateFlow()
+    
+    private val _searchResults = MutableStateFlow<List<PostEntity>>(emptyList())
+    val searchResults = _searchResults.asStateFlow()
+    
+    private val _isSearching = MutableStateFlow(false)
+    val isSearching = _isSearching.asStateFlow()
+
+    // ===== PROFILE STATE =====
+    private val _profileUser = MutableStateFlow<UserEntity?>(null)
+    val profileUser = _profileUser.asStateFlow()
+    
+    private val _profilePosts = MutableStateFlow<List<PostEntity>>(emptyList())
+    val profilePosts = _profilePosts.asStateFlow()
 
     // ===== AUTHENTICATION FUNCTIONS =====
 
     /**
-     * Login user with username and password
+     * Login user with network delay simulation
      * 
-     * @param user Username to login with
-     * @param pass Password to verify
-     * 
-     * Sets currentUser if successful, or loginError if failed
+     * Coroutines Implementation:
+     * - Uses suspend function with delay() to simulate network latency
+     * - Sets isLoading = true during operation
+     * - Runs on viewModelScope (background thread)
+     * - UI remains responsive during delay
      */
     fun login(user: String, pass: String) {
         // Clear previous errors
@@ -83,8 +83,9 @@ class TavernViewModel(private val repository: TavernRepository) : ViewModel() {
 
         viewModelScope.launch {
             try {
-                // Simulate network delay for better UX with animations
-                delay(300)
+                // COROUTINE: Simulate network delay (1.5 seconds)
+                // This runs on background thread, UI doesn't freeze
+                delay(1500)
                 
                 val validUser = repository.login(user, pass)
                 
@@ -97,28 +98,23 @@ class TavernViewModel(private val repository: TavernRepository) : ViewModel() {
             } catch (e: Exception) {
                 _loginError.value = "An error occurred. Please try again."
             } finally {
+                // Always set loading to false when done
                 _isLoading.value = false
             }
         }
     }
 
     /**
-     * Register new user with username and password
-     * 
-     * @param user Username for new account
-     * @param pass Password for new account
-     * 
-     * Auto-logins user if registration successful
+     * Register new user with network delay simulation
      */
     fun register(user: String, pass: String) {
-        // Clear previous errors
         _loginError.value = null
         _isLoading.value = true
 
         viewModelScope.launch {
             try {
-                // Simulate network delay for better UX
-                delay(300)
+                // COROUTINE: Simulate network delay (1.5 seconds)
+                delay(1500)
                 
                 val success = repository.register(UserEntity(user, pass))
                 
@@ -127,10 +123,10 @@ class TavernViewModel(private val repository: TavernRepository) : ViewModel() {
                     login(user, pass)
                 } else {
                     _loginError.value = "That name is already taken! Choose another legend."
+                    _isLoading.value = false
                 }
             } catch (e: Exception) {
                 _loginError.value = "Registration failed. Please try again."
-            } finally {
                 _isLoading.value = false
             }
         }
@@ -138,17 +134,17 @@ class TavernViewModel(private val repository: TavernRepository) : ViewModel() {
 
     /**
      * Logout current user
-     * Clears user state and returns to login screen
      */
     fun logout() {
         _currentUser.value = null
-        selectPost(null) // Close any selected post
-        _loginError.value = null // Clear any errors
+        selectPost(null)
+        exitProfile()
+        clearSearch()
+        _loginError.value = null
     }
 
     /**
      * Clear login/registration error
-     * Call this when user starts typing to clear error message
      */
     fun clearError() {
         _loginError.value = null
@@ -157,60 +153,55 @@ class TavernViewModel(private val repository: TavernRepository) : ViewModel() {
     // ===== POST FUNCTIONS =====
 
     /**
-     * Create new post
+     * Create new post with network delay simulation
      * 
-     * @param title Post title
-     * @param content Post content/body
-     * 
-     * Uses current user as author
+     * Coroutines Implementation:
+     * - Simulates sending data to server with 1.5s delay
+     * - Shows loading indicator during operation
+     * - Prevents double-posting by disabling button
      */
     fun createPost(title: String, content: String) {
         val authorName = _currentUser.value?.username ?: "Anonymous"
+        _isLoading.value = true
         
         viewModelScope.launch {
             try {
-                // Add slight delay for animation smoothness
-                delay(100)
+                // COROUTINE: Simulate network delay (1.5 seconds)
+                delay(1500)
                 
                 repository.addPost(
                     PostEntity(
                         author = authorName,
                         title = title,
                         content = content,
-                        upvotes = (0..100).random() // Random initial upvotes for demo
+                        upvotes = (0..100).random()
                     )
                 )
             } catch (e: Exception) {
-                // In production, show error to user
-                // For now, silently fail
+                // Handle error
+            } finally {
+                _isLoading.value = false
             }
         }
     }
 
     /**
      * Select post to view details and comments
-     * 
-     * @param post Post to select, or null to deselect
-     * 
-     * When post is selected, fetches its comments from database
      */
     fun selectPost(post: PostEntity?) {
         _selectedPost.value = post
 
         if (post != null) {
-            // Post was selected - load its comments
             viewModelScope.launch {
                 try {
                     repository.getComments(post.id).collect { comments ->
                         _currentComments.value = comments
                     }
                 } catch (e: Exception) {
-                    // If error loading comments, show empty list
                     _currentComments.value = emptyList()
                 }
             }
         } else {
-            // Post was deselected - clear comments
             _currentComments.value = emptyList()
         }
     }
@@ -218,21 +209,22 @@ class TavernViewModel(private val repository: TavernRepository) : ViewModel() {
     // ===== COMMENT FUNCTIONS =====
 
     /**
-     * Add comment to currently selected post
+     * Add comment with network delay simulation
      * 
-     * @param content Comment text content
-     * 
-     * Requires a post to be selected
-     * Uses current user as author
+     * Coroutines Implementation:
+     * - Simulates posting comment to server with 1.5s delay
+     * - Shows loading indicator in send button
+     * - Automatically clears input field after success
      */
     fun addComment(content: String) {
-        val post = _selectedPost.value ?: return // Safety: must have post selected
+        val post = _selectedPost.value ?: return
         val authorName = _currentUser.value?.username ?: "Anonymous"
+        _isLoading.value = true
 
         viewModelScope.launch {
             try {
-                // Add slight delay for animation
-                delay(100)
+                // COROUTINE: Simulate network delay (1.5 seconds)
+                delay(1500)
                 
                 val newComment = CommentEntity(
                     postId = post.id,
@@ -242,21 +234,113 @@ class TavernViewModel(private val repository: TavernRepository) : ViewModel() {
                 
                 repository.addComment(newComment)
             } catch (e: Exception) {
-                // In production, show error to user
-                // For now, silently fail
+                // Handle error
+            } finally {
+                _isLoading.value = false
             }
         }
     }
 
-    // ===== FUTURE ENHANCEMENTS =====
-    // You can add these functions later:
+    // ===== SEARCH FUNCTIONS =====
     
-    // fun upvotePost(postId: Int) - Increase upvote count
-    // fun deletePost(postId: Int) - Delete user's own post
-    // fun editPost(postId: Int, newTitle: String, newContent: String) - Edit post
-    // fun deleteComment(commentId: Int) - Delete user's own comment
-    // fun searchPosts(query: String) - Search through posts
-    // fun filterPostsByAuthor(author: String) - Show posts by specific author
+    /**
+     * Update search query and perform search
+     * Search is instant (no delay) for better UX
+     */
+    fun updateSearchQuery(query: String) {
+        _searchQuery.value = query
+        
+        if (query.isBlank()) {
+            _isSearching.value = false
+            _searchResults.value = emptyList()
+        } else {
+            _isSearching.value = true
+            viewModelScope.launch {
+                try {
+                    repository.searchPosts(query).collect { results ->
+                        _searchResults.value = results
+                    }
+                } catch (e: Exception) {
+                    _searchResults.value = emptyList()
+                }
+            }
+        }
+    }
+    
+    /**
+     * Clear search
+     */
+    fun clearSearch() {
+        _searchQuery.value = ""
+        _isSearching.value = false
+        _searchResults.value = emptyList()
+    }
+
+    // ===== PROFILE FUNCTIONS =====
+    
+    /**
+     * View user profile
+     */
+    fun viewProfile(username: String) {
+        viewModelScope.launch {
+            try {
+                // Load user data
+                val user = repository.getUserByUsername(username)
+                _profileUser.value = user
+                
+                // Load user's posts
+                if (user != null) {
+                    repository.getPostsByAuthor(username).collect { posts ->
+                        _profilePosts.value = posts
+                    }
+                }
+            } catch (e: Exception) {
+                _profileUser.value = null
+                _profilePosts.value = emptyList()
+            }
+        }
+    }
+    
+    /**
+     * Update current user profile with network delay simulation
+     * 
+     * Coroutines Implementation:
+     * - Simulates updating profile on server with 1.5s delay
+     * - Shows loading indicator in Save button
+     * - Disables form during update
+     */
+    fun updateProfile(bio: String, avatarUrl: String) {
+        val user = _currentUser.value ?: return
+        _isLoading.value = true
+        
+        viewModelScope.launch {
+            try {
+                // COROUTINE: Simulate network delay (1.5 seconds)
+                delay(1500)
+                
+                val updatedUser = user.copy(bio = bio, avatarUrl = avatarUrl)
+                repository.updateUser(updatedUser)
+                _currentUser.value = updatedUser
+                
+                // If viewing own profile, update it too
+                if (_profileUser.value?.username == user.username) {
+                    _profileUser.value = updatedUser
+                }
+            } catch (e: Exception) {
+                // Handle error
+            } finally {
+                _isLoading.value = false
+            }
+        }
+    }
+    
+    /**
+     * Exit profile view
+     */
+    fun exitProfile() {
+        _profileUser.value = null
+        _profilePosts.value = emptyList()
+    }
 }
 
 /**

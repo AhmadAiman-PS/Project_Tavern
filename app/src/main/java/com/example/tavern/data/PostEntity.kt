@@ -9,5 +9,6 @@ data class PostEntity(
     val author: String,
     val title: String,
     val content: String,
-    val upvotes: Int = 0
+    val upvotes: Int = 0,
+    val timestamp: Long = System.currentTimeMillis() // Waktu posting dalam milliseconds
 )
