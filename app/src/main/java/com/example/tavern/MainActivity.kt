@@ -27,11 +27,11 @@ class MainActivity : ComponentActivity() {
             LaunchedEffect(Unit) {
                 // Step 1: Simulasi cek koneksi database (Thread Background)
                 statusMemuat.value = "Menghubungkan ke Tavern Database..."
-                delay(2000) // Tunggu 2 detik
+                delay(3000) // Tunggu 3 detik
 
                 // Step 2: Simulasi ambil data User (seperti UserEntity di folder datamu)
                 statusMemuat.value = "Mengambil data User..."
-                delay(2000) // Tunggu 2 detik lagi
+                delay(3000) // Tunggu 3 detik lagi
 
                 // Step 3: Selesai! Munculkan notifikasi singkat
                 statusMemuat.value = "Selamat Datang di Tavern!"
