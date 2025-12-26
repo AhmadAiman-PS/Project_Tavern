@@ -1,15 +1,14 @@
 package com.example.tavern
 
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.Text
-import androidx.compose.runtime.* // Penting untuk mutableStateOf dan LaunchedEffect
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
 import com.example.tavern.ui.TavernApp // Ensure this import is here
 import com.example.tavern.ui.theme.TavernTheme
 import kotlinx.coroutines.delay
@@ -19,27 +18,27 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge() // Makes the app look modern with a transparent status bar
         setContent {
+            // Kita buat status "Loading" menggunakan state
+            val statusMemuat = remember { mutableStateOf("Memulai Aplikasi...") }
+            val context = LocalContext.current
+
+            // Ini adalah COROUTINE di JETPACK COMPOSE
+            // LaunchedEffect akan berjalan otomatis saat aplikasi dibuka
+            LaunchedEffect(Unit) {
+                // Step 1: Simulasi cek koneksi database (Thread Background)
+                statusMemuat.value = "Menghubungkan ke Tavern Database..."
+                delay(2000) // Tunggu 2 detik
+
+                // Step 2: Simulasi ambil data User (seperti UserEntity di folder datamu)
+                statusMemuat.value = "Mengambil data User..."
+                delay(2000) // Tunggu 2 detik lagi
+
+                // Step 3: Selesai! Munculkan notifikasi singkat
+                statusMemuat.value = "Selamat Datang di Tavern!"
+                Toast.makeText(context, "Data Berhasil Dimuat via Coroutine", Toast.LENGTH_LONG).show()
+            }
             TavernTheme {
-                // 1. Siapkan variable untuk menampung teks status
-                // 'remember' berguna agar tampilan mengingat tulisan ini saat berubah
-                var statusTeks by remember { mutableStateOf("Loading... Harap Tunggu 3 Detik") }
-
-                // 2. Jalankan Coroutine
-                // LaunchedEffect(Unit) artinya: Jalankan blok kode ini SATU KALI saat layar muncul
-                LaunchedEffect(Unit) {
-                    delay(3000) // Tahan/Delay selama 3000ms (3 detik)
-                    statusTeks = "Sukses! Data berhasil dimuat (Delay selesai)." // Ubah teks
-                }
-
-                // 3. Tampilkan Teks di tengah layar
-                Box(
-                    modifier = Modifier.fillMaxSize(), // Memenuhi seluruh layar
-                    contentAlignment = Alignment.Center // Teks di tengah-tengah
-                ) {
-                    Text(text = statusTeks)
-                }
-
-                // Catatan: Baris 'TavernApp()' aslinya saya hapus dulu supaya kita fokus ke tugas delay
+                // We replaced the default "Greeting" with your main app screen
               TavernApp()
             }
         }
