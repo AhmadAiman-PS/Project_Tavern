@@ -55,6 +55,9 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.6.2")
     implementation("androidx.compose.runtime:runtime-livedata:1.5.4") // Helps with state
 
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3") // Versi bisa menyesuaikan
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.6.2") // Untuk lifecycleScope
+
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)
