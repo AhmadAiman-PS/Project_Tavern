@@ -41,7 +41,8 @@ import java.util.*
 fun TavernApp() {
     val context = LocalContext.current
     val database = TavernDatabase.getDatabase(context)
-    val repository = TavernRepository(database.postDao(), database.userDao(), database.commentDao())
+    // Initialize repository with all DAOs including cheerDao for like system
+    val repository = TavernRepository(database.postDao(), database.userDao(), database.commentDao(), database.cheerDao())
     val viewModel: TavernViewModel = viewModel(factory = TavernViewModelFactory(repository))
 
     val currentUser by viewModel.currentUser.collectAsState()
@@ -50,7 +51,7 @@ fun TavernApp() {
 
     // State to toggle between Login and Register screens
     var isRegistering by remember { mutableStateOf(false) }
-    
+
     // Track where we came from for proper back navigation
     var cameFromProfile by remember { mutableStateOf(false) }
 
@@ -76,28 +77,34 @@ fun TavernApp() {
         label = "screen_transition"
     ) { screen ->
         when (screen) {
-            "profile" -> {
-                cameFromProfile = false
-                ProfileScreen(
-                    viewModel = viewModel,
-                    onBack = { viewModel.exitProfile() },
-                    onPostClick = { post ->
-                        cameFromProfile = true
-                        viewModel.selectPost(post)
-                    }
-                )
-            }
+                "profile" -> {
+            ProfileScreen(
+                viewModel = viewModel,
+                repository = repository, // Tambahkan baris ini
+                onBack = {
+                    cameFromProfile = false
+                    viewModel.exitProfile()
+                },
+                onPostClick = { post ->
+                    cameFromProfile = true
+                    viewModel.selectPost(post)
+                }
+            )
+        }
             "detail" -> PostDetailScreen(
                 viewModel = viewModel,
+                repository = repository,
                 onBack = {
                     viewModel.selectPost(null)
                     if (cameFromProfile) {
                         // Stay in profile, don't exit
+                        // We do NOT set cameFromProfile = false here so the when block keeps us in profile
+                    } else {
                         cameFromProfile = false
                     }
                 }
             )
-            "feed" -> TavernFeedScreen(viewModel, currentUser!!.username)
+            "feed" -> TavernFeedScreen(viewModel, repository, currentUser!!.username)
             "register" -> RegisterScreen(
                 viewModel = viewModel,
                 onBackToLogin = { isRegistering = false }
@@ -157,9 +164,9 @@ fun LoginScreen(viewModel: TavernViewModel, onNavigateToRegister: () -> Unit) {
                     .pulseAnimation(minScale = 0.95f, maxScale = 1.05f, durationMillis = 2000),
                 tint = MaterialTheme.colorScheme.primary
             )
-            
+
             Spacer(modifier = Modifier.height(16.dp))
-            
+
             // Title with fade in animation
             Text(
                 "The Tavern Gate",
@@ -167,7 +174,7 @@ fun LoginScreen(viewModel: TavernViewModel, onNavigateToRegister: () -> Unit) {
                 color = MaterialTheme.colorScheme.onBackground,
                 modifier = Modifier.fadeInOnAppear(delayMillis = 100)
             )
-            
+
             Text(
                 "Enter your legend",
                 style = MaterialTheme.typography.bodyMedium,
@@ -175,7 +182,7 @@ fun LoginScreen(viewModel: TavernViewModel, onNavigateToRegister: () -> Unit) {
                 fontStyle = FontStyle.Italic,
                 modifier = Modifier.fadeInOnAppear(delayMillis = 200)
             )
-            
+
             Spacer(modifier = Modifier.height(48.dp))
 
             // Username Input with slide animation
@@ -183,8 +190,8 @@ fun LoginScreen(viewModel: TavernViewModel, onNavigateToRegister: () -> Unit) {
                 value = username,
                 onValueChange = { username = it },
                 label = { Text("Traveller's Name") },
-                leadingIcon = { 
-                    Icon(Icons.Default.Person, null, tint = MaterialTheme.colorScheme.primary) 
+                leadingIcon = {
+                    Icon(Icons.Default.Person, null, tint = MaterialTheme.colorScheme.primary)
                 },
                 singleLine = true,
                 enabled = !isLoading,
@@ -197,7 +204,7 @@ fun LoginScreen(viewModel: TavernViewModel, onNavigateToRegister: () -> Unit) {
                     unfocusedBorderColor = MaterialTheme.colorScheme.outline
                 )
             )
-            
+
             Spacer(modifier = Modifier.height(16.dp))
 
             // Password Input with slide animation
@@ -205,8 +212,8 @@ fun LoginScreen(viewModel: TavernViewModel, onNavigateToRegister: () -> Unit) {
                 value = password,
                 onValueChange = { password = it },
                 label = { Text("Secret Word") },
-                leadingIcon = { 
-                    Icon(Icons.Default.Lock, null, tint = MaterialTheme.colorScheme.primary) 
+                leadingIcon = {
+                    Icon(Icons.Default.Lock, null, tint = MaterialTheme.colorScheme.primary)
                 },
                 visualTransformation = PasswordVisualTransformation(),
                 singleLine = true,
@@ -302,7 +309,7 @@ fun LoginScreen(viewModel: TavernViewModel, onNavigateToRegister: () -> Unit) {
 // --- SCREEN 2: FEED (The Tavern Board) ---
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TavernFeedScreen(viewModel: TavernViewModel, username: String) {
+fun TavernFeedScreen(viewModel: TavernViewModel, repository: TavernRepository, username: String) {
     val posts by viewModel.uiState.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
     val isSearching by viewModel.isSearching.collectAsState()
@@ -318,15 +325,15 @@ fun TavernFeedScreen(viewModel: TavernViewModel, username: String) {
                         OutlinedTextField(
                             value = searchQuery,
                             onValueChange = { viewModel.updateSearchQuery(it) },
-                            placeholder = { 
+                            placeholder = {
                                 Text(
                                     "Search posts...",
                                     color = Color.Black.copy(alpha = 0.6f)
-                                ) 
+                                )
                             },
                             modifier = Modifier
                                 .fillMaxWidth(0.9f)
-                                .height(48.dp), // Dikecilkan dari default
+                                .height(48.dp),
                             singleLine = true,
                             leadingIcon = {
                                 Icon(
@@ -336,7 +343,7 @@ fun TavernFeedScreen(viewModel: TavernViewModel, username: String) {
                                 )
                             },
                             trailingIcon = {
-                                IconButton(onClick = { 
+                                IconButton(onClick = {
                                     viewModel.clearSearch()
                                     showSearchBar = false
                                 }) {
@@ -447,7 +454,7 @@ fun TavernFeedScreen(viewModel: TavernViewModel, username: String) {
         containerColor = MaterialTheme.colorScheme.background
     ) { padding ->
         val displayPosts = if (isSearching) searchResults else posts
-        
+
         Column(
             modifier = Modifier
                 .padding(padding)
@@ -478,10 +485,11 @@ fun TavernFeedScreen(viewModel: TavernViewModel, username: String) {
                     }
                 }
             }
-            
+
             PostList(
                 posts = displayPosts,
                 viewModel = viewModel,
+                repository = repository,
                 modifier = Modifier.weight(1f),
                 emptyMessage = if (isSearching) "No posts found" else "No tales yet..."
             )
@@ -503,7 +511,7 @@ fun TavernFeedScreen(viewModel: TavernViewModel, username: String) {
 // --- SCREEN 3: POST DETAIL (Discussion) ---
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PostDetailScreen(viewModel: TavernViewModel, onBack: () -> Unit) {
+fun PostDetailScreen(viewModel: TavernViewModel, repository: TavernRepository, onBack: () -> Unit) {
     val post = viewModel.selectedPost.collectAsState().value ?: return
     val comments by viewModel.currentComments.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
@@ -603,7 +611,13 @@ fun PostDetailScreen(viewModel: TavernViewModel, onBack: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             item {
-                PostCard(post, onClick = {}, isDetail = true, viewModel = viewModel)
+                PostCard(
+                    post = post,
+                    onClick = {},
+                    isDetail = true,
+                    viewModel = viewModel,
+                    repository = repository
+                )
                 Spacer(modifier = Modifier.height(8.dp))
                 HorizontalDivider(
                     color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
@@ -683,6 +697,7 @@ fun PostDetailScreen(viewModel: TavernViewModel, onBack: () -> Unit) {
 fun PostList(
     posts: List<PostEntity>,
     viewModel: TavernViewModel,
+    repository: TavernRepository,
     modifier: Modifier = Modifier,
     emptyMessage: String = "No tales yet..."
 ) {
@@ -733,7 +748,8 @@ fun PostList(
                     post = post,
                     onClick = { viewModel.selectPost(post) },
                     modifier = Modifier.fadeInOnAppear(delayMillis = index * 50),
-                    viewModel = viewModel
+                    viewModel = viewModel,
+                    repository = repository
                 )
             }
         }
@@ -747,8 +763,47 @@ fun PostCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     isDetail: Boolean = false,
-    viewModel: TavernViewModel? = null
+    viewModel: TavernViewModel? = null,
+    repository: TavernRepository
 ) {
+    var showDeleteDialog by remember { mutableStateOf(false) }
+    val currentUser = viewModel?.currentUser?.collectAsState()?.value
+
+    // Get cheer count
+    val cheerCount by remember(post.id) {
+        repository.getCheerCount(post.id)
+    }.collectAsState(initial = 0)
+
+    // Check if user cheered
+    val hasUserCheered by remember(post.id) {
+        val username = viewModel?.currentUser?.value?.username ?: ""
+        repository.hasUserCheered(username, post.id)
+    }.collectAsState(initial = 0)
+
+    if (showDeleteDialog && viewModel != null) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            title = { Text("Delete Post?") },
+            text = { Text("Are you sure you want to delete this tale? This action cannot be undone.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.deletePost(post)
+                        showDeleteDialog = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
     Card(
         modifier = modifier
             .fillMaxWidth()
@@ -801,35 +856,54 @@ fun PostCard(
                         )
                     }
                 }
-                
-                // Timestamp
-                Surface(
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                    shape = Shapes.small,
-                    modifier = Modifier.fadeInOnAppear(delayMillis = 150)
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    // Delete Button for Owner
+                    if (currentUser?.username == post.author && !isDetail) {
+                        IconButton(
+                            onClick = { showDeleteDialog = true },
+                            modifier = Modifier.size(24.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Delete,
+                                contentDescription = "Delete",
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    }
+
+                    // Timestamp
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        shape = Shapes.small,
+                        modifier = Modifier.fadeInOnAppear(delayMillis = 150)
                     ) {
-                        Icon(
-                            Icons.Default.Schedule,
-                            null,
-                            modifier = Modifier.size(12.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                        )
-                        Text(
-                            text = formatTimestamp(post.timestamp),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                        )
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Schedule,
+                                null,
+                                modifier = Modifier.size(12.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                            )
+                            Text(
+                                text = formatTimestamp(post.timestamp),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                            )
+                        }
                     }
                 }
             }
-            
+
             Spacer(modifier = Modifier.height(12.dp))
-            
+
             // Title
             Text(
                 text = post.title,
@@ -837,9 +911,9 @@ fun PostCard(
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.fadeInOnAppear(delayMillis = 200)
             )
-            
+
             Spacer(modifier = Modifier.height(8.dp))
-            
+
             // Content
             Text(
                 text = post.content,
@@ -848,32 +922,31 @@ fun PostCard(
                 maxLines = if (isDetail) Int.MAX_VALUE else 3,
                 modifier = Modifier.fadeInOnAppear(delayMillis = 300)
             )
-            
+
             Spacer(modifier = Modifier.height(16.dp))
-            
-            // Upvotes
-            Surface(
-                color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
-                shape = Shapes.small,
-                modifier = Modifier.fadeInOnAppear(delayMillis = 400)
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                // Cheer button dengan animation
+                Button(
+                    onClick = { viewModel?.toggleCheer(post) },
+                    colors = if (hasUserCheered > 0)
+                        ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+                    else
+                        ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.secondary),
+                    modifier = Modifier.fadeInOnAppear(delayMillis = 400),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                    shape = Shapes.small
                 ) {
                     Icon(
                         Icons.Default.LocalBar,
                         null,
-                        tint = MaterialTheme.colorScheme.secondary,
                         modifier = Modifier.size(18.dp)
                     )
-                    Text(
-                        text = "${post.upvotes} Cheers",
-                        color = MaterialTheme.colorScheme.secondary,
-                        style = MetaText,
-                        fontWeight = FontWeight.Bold
-                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("$cheerCount Cheers")
                 }
             }
         }
@@ -938,7 +1011,7 @@ fun AddPostDialog(viewModel: TavernViewModel, onDismiss: () -> Unit, onConfirm: 
     var title by remember { mutableStateOf("") }
     var body by remember { mutableStateOf("") }
     val isLoading by viewModel.isLoading.collectAsState()
-    
+
     AlertDialog(
         onDismissRequest = { if (!isLoading) onDismiss() },
         title = {
@@ -1010,7 +1083,7 @@ fun AddPostDialog(viewModel: TavernViewModel, onDismiss: () -> Unit, onConfirm: 
 private fun formatTimestamp(timestamp: Long): String {
     val now = System.currentTimeMillis()
     val diff = now - timestamp
-    
+
     return when {
         diff < 60000 -> "Just now" // Less than 1 minute
         diff < 3600000 -> "${diff / 60000}m ago" // Less than 1 hour
