@@ -6,7 +6,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -25,7 +24,6 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -41,7 +39,6 @@ import java.util.*
 fun TavernApp() {
     val context = LocalContext.current
     val database = TavernDatabase.getDatabase(context)
-    // Initialize repository with all DAOs including cheerDao for like system
     val repository = TavernRepository(database.postDao(), database.userDao(), database.commentDao(), database.cheerDao())
     val viewModel: TavernViewModel = viewModel(factory = TavernViewModelFactory(repository))
 
@@ -52,14 +49,13 @@ fun TavernApp() {
     // State to toggle between Login and Register screens
     var isRegistering by remember { mutableStateOf(false) }
 
-    // Track where we came from for proper back navigation
-    var cameFromProfile by remember { mutableStateOf(false) }
-
     // --- NAVIGATION LOGIC WITH ANIMATIONS ---
     AnimatedContent(
         targetState = when {
-            currentUser != null && profileUser != null -> "profile"
+            // FIX NAVIGASI: Cek Detail (selectedPost) DULUAN sebelum Profile
+            // Ini memastikan jika kita klik post di halaman profile, kita pindah ke detail
             currentUser != null && selectedPost != null -> "detail"
+            currentUser != null && profileUser != null -> "profile"
             currentUser != null -> "feed"
             isRegistering -> "register"
             else -> "login"
@@ -77,31 +73,24 @@ fun TavernApp() {
         label = "screen_transition"
     ) { screen ->
         when (screen) {
-                "profile" -> {
-            ProfileScreen(
-                viewModel = viewModel,
-                repository = repository, // Tambahkan baris ini
-                onBack = {
-                    cameFromProfile = false
-                    viewModel.exitProfile()
-                },
-                onPostClick = { post ->
-                    cameFromProfile = true
-                    viewModel.selectPost(post)
-                }
-            )
-        }
+            "profile" -> {
+                ProfileScreen(
+                    viewModel = viewModel,
+                    repository = repository, // Pass repository
+                    onBack = { viewModel.exitProfile() },
+                    onPostClick = { post ->
+                        viewModel.selectPost(post)
+                    }
+                )
+            }
             "detail" -> PostDetailScreen(
                 viewModel = viewModel,
                 repository = repository,
                 onBack = {
+                    // Cukup kosongkan post.
+                    // Jika kita datang dari profil, 'profileUser' masih ada,
+                    // jadi blok 'when' di atas otomatis akan memilih "profile" setelah ini.
                     viewModel.selectPost(null)
-                    if (cameFromProfile) {
-                        // Stay in profile, don't exit
-                        // We do NOT set cameFromProfile = false here so the when block keeps us in profile
-                    } else {
-                        cameFromProfile = false
-                    }
                 }
             )
             "feed" -> TavernFeedScreen(viewModel, repository, currentUser!!.username)
@@ -126,7 +115,6 @@ fun LoginScreen(viewModel: TavernViewModel, onNavigateToRegister: () -> Unit) {
     val isLoading by viewModel.isLoading.collectAsState()
     var triggerShake by remember { mutableStateOf(false) }
 
-    // Trigger shake animation when error occurs
     LaunchedEffect(error) {
         if (error != null) {
             triggerShake = true
@@ -135,7 +123,6 @@ fun LoginScreen(viewModel: TavernViewModel, onNavigateToRegister: () -> Unit) {
         }
     }
 
-    // Gradient background
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -155,7 +142,6 @@ fun LoginScreen(viewModel: TavernViewModel, onNavigateToRegister: () -> Unit) {
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            // Logo with pulse animation
             Icon(
                 imageVector = Icons.Default.LocalBar,
                 contentDescription = "Logo",
@@ -167,7 +153,6 @@ fun LoginScreen(viewModel: TavernViewModel, onNavigateToRegister: () -> Unit) {
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Title with fade in animation
             Text(
                 "The Tavern Gate",
                 style = TitleTavern,
@@ -185,7 +170,6 @@ fun LoginScreen(viewModel: TavernViewModel, onNavigateToRegister: () -> Unit) {
 
             Spacer(modifier = Modifier.height(48.dp))
 
-            // Username Input with slide animation
             OutlinedTextField(
                 value = username,
                 onValueChange = { username = it },
@@ -207,7 +191,6 @@ fun LoginScreen(viewModel: TavernViewModel, onNavigateToRegister: () -> Unit) {
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Password Input with slide animation
             OutlinedTextField(
                 value = password,
                 onValueChange = { password = it },
@@ -229,7 +212,6 @@ fun LoginScreen(viewModel: TavernViewModel, onNavigateToRegister: () -> Unit) {
                 )
             )
 
-            // Error Message with animation
             AnimatedVisibility(
                 visible = error != null,
                 enter = slideInVertically() + fadeIn(),
@@ -256,7 +238,6 @@ fun LoginScreen(viewModel: TavernViewModel, onNavigateToRegister: () -> Unit) {
 
             Spacer(modifier = Modifier.height(32.dp))
 
-            // Login Button with loading state
             Button(
                 onClick = { viewModel.login(username, password) },
                 modifier = Modifier
@@ -290,7 +271,6 @@ fun LoginScreen(viewModel: TavernViewModel, onNavigateToRegister: () -> Unit) {
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Switch to Register with fade animation
             TextButton(
                 onClick = onNavigateToRegister,
                 modifier = Modifier.fadeInOnAppear(delayMillis = 600),
@@ -326,32 +306,19 @@ fun TavernFeedScreen(viewModel: TavernViewModel, repository: TavernRepository, u
                             value = searchQuery,
                             onValueChange = { viewModel.updateSearchQuery(it) },
                             placeholder = {
-                                Text(
-                                    "Search posts...",
-                                    color = Color.Black.copy(alpha = 0.6f)
-                                )
+                                Text("Search posts...", color = Color.Black.copy(alpha = 0.6f))
                             },
-                            modifier = Modifier
-                                .fillMaxWidth(0.9f)
-                                .height(48.dp),
+                            modifier = Modifier.fillMaxWidth(0.9f).height(48.dp),
                             singleLine = true,
                             leadingIcon = {
-                                Icon(
-                                    Icons.Default.Search,
-                                    null,
-                                    tint = Color.Black.copy(alpha = 0.7f)
-                                )
+                                Icon(Icons.Default.Search, null, tint = Color.Black.copy(alpha = 0.7f))
                             },
                             trailingIcon = {
                                 IconButton(onClick = {
                                     viewModel.clearSearch()
                                     showSearchBar = false
                                 }) {
-                                    Icon(
-                                        Icons.Default.Close,
-                                        null,
-                                        tint = Color.Black.copy(alpha = 0.7f)
-                                    )
+                                    Icon(Icons.Default.Close, null, tint = Color.Black.copy(alpha = 0.7f))
                                 }
                             },
                             shape = TextFieldShape,
@@ -362,14 +329,7 @@ fun TavernFeedScreen(viewModel: TavernViewModel, repository: TavernRepository, u
                                 unfocusedBorderColor = Color.Black.copy(alpha = 0.3f),
                                 focusedTextColor = Color.Black,
                                 unfocusedTextColor = Color.Black,
-                                cursorColor = Color.Black,
-                                focusedLeadingIconColor = Color.Black.copy(alpha = 0.7f),
-                                unfocusedLeadingIconColor = Color.Black.copy(alpha = 0.5f),
-                                focusedTrailingIconColor = Color.Black.copy(alpha = 0.7f),
-                                unfocusedTrailingIconColor = Color.Black.copy(alpha = 0.5f)
-                            ),
-                            textStyle = MaterialTheme.typography.bodyMedium.copy(
-                                color = Color.Black
+                                cursorColor = Color.Black
                             )
                         )
                     } else {
@@ -396,11 +356,7 @@ fun TavernFeedScreen(viewModel: TavernViewModel, repository: TavernRepository, u
                         onClick = { viewModel.viewProfile(username) },
                         modifier = Modifier.bounceOnAppear()
                     ) {
-                        Icon(
-                            Icons.Default.Person,
-                            contentDescription = "Profile",
-                            tint = MaterialTheme.colorScheme.onPrimary
-                        )
+                        Icon(Icons.Default.Person, "Profile", tint = MaterialTheme.colorScheme.onPrimary)
                     }
                 },
                 actions = {
@@ -409,22 +365,14 @@ fun TavernFeedScreen(viewModel: TavernViewModel, repository: TavernRepository, u
                             onClick = { showSearchBar = true },
                             modifier = Modifier.bounceOnAppear()
                         ) {
-                            Icon(
-                                Icons.Default.Search,
-                                contentDescription = "Search",
-                                tint = MaterialTheme.colorScheme.onPrimary
-                            )
+                            Icon(Icons.Default.Search, "Search", tint = MaterialTheme.colorScheme.onPrimary)
                         }
                     }
                     IconButton(
                         onClick = { viewModel.logout() },
                         modifier = Modifier.bounceOnAppear()
                     ) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.ExitToApp,
-                            contentDescription = "Logout",
-                            tint = MaterialTheme.colorScheme.onPrimary
-                        )
+                        Icon(Icons.AutoMirrored.Filled.ExitToApp, "Logout", tint = MaterialTheme.colorScheme.onPrimary)
                     }
                 },
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
@@ -442,25 +390,16 @@ fun TavernFeedScreen(viewModel: TavernViewModel, repository: TavernRepository, u
                 modifier = Modifier
                     .bounceOnAppear()
                     .pulseAnimation(minScale = 0.98f, maxScale = 1.02f, durationMillis = 1500),
-                shape = FabShape,
-                elevation = FloatingActionButtonDefaults.elevation(
-                    defaultElevation = 6.dp,
-                    pressedElevation = 12.dp
-                )
+                shape = FabShape
             ) {
-                Icon(Icons.Default.HistoryEdu, contentDescription = "Write")
+                Icon(Icons.Default.HistoryEdu, "Write")
             }
         },
         containerColor = MaterialTheme.colorScheme.background
     ) { padding ->
         val displayPosts = if (isSearching) searchResults else posts
 
-        Column(
-            modifier = Modifier
-                .padding(padding)
-                .fillMaxSize()
-        ) {
-            // Show search indicator
+        Column(modifier = Modifier.padding(padding).fillMaxSize()) {
             if (isSearching) {
                 Surface(
                     color = MaterialTheme.colorScheme.secondaryContainer,
@@ -471,16 +410,11 @@ fun TavernFeedScreen(viewModel: TavernViewModel, repository: TavernRepository, u
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Icon(
-                            Icons.Default.Search,
-                            null,
-                            tint = MaterialTheme.colorScheme.secondary
-                        )
+                        Icon(Icons.Default.Search, null, tint = MaterialTheme.colorScheme.secondary)
                         Text(
                             "Found ${searchResults.size} posts matching \"$searchQuery\"",
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer,
-                            fontWeight = FontWeight.Medium
+                            color = MaterialTheme.colorScheme.onSecondaryContainer
                         )
                     }
                 }
@@ -529,20 +463,11 @@ fun PostDetailScreen(viewModel: TavernViewModel, repository: TavernRepository, o
                     )
                 },
                 navigationIcon = {
-                    IconButton(
-                        onClick = onBack,
-                        modifier = Modifier.bounceOnAppear()
-                    ) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
-                            "Back",
-                            tint = MaterialTheme.colorScheme.onSurface
-                        )
+                    IconButton(onClick = onBack, modifier = Modifier.bounceOnAppear()) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = MaterialTheme.colorScheme.onSurface)
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                ),
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface),
                 modifier = Modifier.shadow(4.dp)
             )
         },
@@ -554,9 +479,7 @@ fun PostDetailScreen(viewModel: TavernViewModel, repository: TavernRepository, o
                 modifier = Modifier.slideInFromBottomOnAppear(delayMillis = 200)
             ) {
                 Row(
-                    modifier = Modifier
-                        .padding(12.dp)
-                        .fillMaxWidth(),
+                    modifier = Modifier.padding(12.dp).fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
@@ -585,17 +508,9 @@ fun PostDetailScreen(viewModel: TavernViewModel, repository: TavernRepository, o
                         modifier = Modifier.size(56.dp)
                     ) {
                         if (isLoading) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(24.dp),
-                                color = MaterialTheme.colorScheme.onPrimary,
-                                strokeWidth = 2.dp
-                            )
+                            CircularProgressIndicator(modifier = Modifier.size(24.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
                         } else {
-                            Icon(
-                                Icons.AutoMirrored.Filled.Send,
-                                "Send",
-                                modifier = Modifier.size(24.dp)
-                            )
+                            Icon(Icons.AutoMirrored.Filled.Send, "Send", modifier = Modifier.size(24.dp))
                         }
                     }
                 }
@@ -603,38 +518,21 @@ fun PostDetailScreen(viewModel: TavernViewModel, repository: TavernRepository, o
         }
     ) { padding ->
         LazyColumn(
-            modifier = Modifier
-                .padding(padding)
-                .fillMaxSize()
-                .background(MaterialTheme.colorScheme.background),
+            modifier = Modifier.padding(padding).fillMaxSize().background(MaterialTheme.colorScheme.background),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             item {
-                PostCard(
-                    post = post,
-                    onClick = {},
-                    isDetail = true,
-                    viewModel = viewModel,
-                    repository = repository
-                )
+                PostCard(post = post, onClick = {}, isDetail = true, viewModel = viewModel, repository = repository)
                 Spacer(modifier = Modifier.height(8.dp))
-                HorizontalDivider(
-                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
-                    thickness = 1.dp
-                )
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f), thickness = 1.dp)
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.fadeInOnAppear(delayMillis = 300)
                 ) {
-                    Icon(
-                        Icons.Default.HistoryEdu,
-                        null,
-                        tint = MaterialTheme.colorScheme.secondary,
-                        modifier = Modifier.size(20.dp)
-                    )
+                    Icon(Icons.Default.HistoryEdu, null, tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(20.dp))
                     Text(
                         "Voices (${comments.size})",
                         style = MaterialTheme.typography.titleMedium,
@@ -648,38 +546,18 @@ fun PostDetailScreen(viewModel: TavernViewModel, repository: TavernRepository, o
             if (comments.isEmpty()) {
                 item {
                     Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .fadeInOnAppear(delayMillis = 400),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                        ),
+                        modifier = Modifier.fillMaxWidth().fadeInOnAppear(delayMillis = 400),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
                         shape = Shapes.medium
                     ) {
                         Column(
-                            modifier = Modifier
-                                .padding(32.dp)
-                                .fillMaxWidth(),
+                            modifier = Modifier.padding(32.dp).fillMaxWidth(),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            Icon(
-                                Icons.Default.HistoryEdu,
-                                null,
-                                tint = MaterialTheme.colorScheme.outline,
-                                modifier = Modifier.size(48.dp)
-                            )
+                            Icon(Icons.Default.HistoryEdu, null, tint = MaterialTheme.colorScheme.outline, modifier = Modifier.size(48.dp))
                             Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                "No voices yet...",
-                                fontStyle = FontStyle.Italic,
-                                color = MaterialTheme.colorScheme.outline,
-                                style = MaterialTheme.typography.bodyLarge
-                            )
-                            Text(
-                                "Be the first to speak!",
-                                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.7f),
-                                style = MaterialTheme.typography.bodySmall
-                            )
+                            Text("No voices yet...", fontStyle = FontStyle.Italic, color = MaterialTheme.colorScheme.outline, style = MaterialTheme.typography.bodyLarge)
+                            Text("Be the first to speak!", color = MaterialTheme.colorScheme.outline.copy(alpha = 0.7f), style = MaterialTheme.typography.bodySmall)
                         }
                     }
                 }
@@ -702,35 +580,13 @@ fun PostList(
     emptyMessage: String = "No tales yet..."
 ) {
     if (posts.isEmpty()) {
-        Box(
-            modifier = modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
-        ) {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.bounceOnAppear()
-            ) {
-                Icon(
-                    Icons.Default.LocalBar,
-                    null,
-                    tint = MaterialTheme.colorScheme.outline,
-                    modifier = Modifier
-                        .size(64.dp)
-                        .pulseAnimation()
-                )
+        Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.bounceOnAppear()) {
+                Icon(Icons.Default.LocalBar, null, tint = MaterialTheme.colorScheme.outline, modifier = Modifier.size(64.dp).pulseAnimation())
                 Spacer(modifier = Modifier.height(16.dp))
-                Text(
-                    emptyMessage,
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontFamily = FontFamily.Serif,
-                    color = MaterialTheme.colorScheme.outline
-                )
+                Text(emptyMessage, style = MaterialTheme.typography.headlineSmall, fontFamily = FontFamily.Serif, color = MaterialTheme.colorScheme.outline)
                 if (emptyMessage == "No tales yet...") {
-                    Text(
-                        "Be the first to share your story!",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.7f)
-                    )
+                    Text("Be the first to share your story!", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.outline.copy(alpha = 0.7f))
                 }
             }
         }
@@ -740,10 +596,7 @@ fun PostList(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            itemsIndexed(
-                items = posts,
-                key = { _, post -> post.id }
-            ) { index, post ->
+            itemsIndexed(items = posts, key = { _, post -> post.id }) { index, post ->
                 PostCard(
                     post = post,
                     onClick = { viewModel.selectPost(post) },
@@ -769,12 +622,12 @@ fun PostCard(
     var showDeleteDialog by remember { mutableStateOf(false) }
     val currentUser = viewModel?.currentUser?.collectAsState()?.value
 
-    // Get cheer count
+    // Cheer Count Logic
     val cheerCount by remember(post.id) {
         repository.getCheerCount(post.id)
     }.collectAsState(initial = 0)
 
-    // Check if user cheered
+    // User Cheered Logic
     val hasUserCheered by remember(post.id) {
         val username = viewModel?.currentUser?.value?.username ?: ""
         repository.hasUserCheered(username, post.id)
@@ -808,23 +661,17 @@ fun PostCard(
         modifier = modifier
             .fillMaxWidth()
             .then(if (!isDetail) Modifier.clickable(onClick = onClick) else Modifier),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface
-        ),
-        elevation = CardDefaults.cardElevation(
-            defaultElevation = 4.dp,
-            pressedElevation = if (!isDetail) 8.dp else 4.dp
-        ),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp, pressedElevation = if (!isDetail) 8.dp else 4.dp),
         shape = PostCardShape
     ) {
         Column(modifier = Modifier.padding(20.dp)) {
-            // Author badge and timestamp row
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Author badge (clickable)
+                // Author
                 Surface(
                     color = MaterialTheme.colorScheme.primaryContainer,
                     shape = Shapes.small,
@@ -832,9 +679,7 @@ fun PostCard(
                         .fadeInOnAppear(delayMillis = 100)
                         .then(
                             if (viewModel != null && !isDetail) {
-                                Modifier.clickable {
-                                    viewModel.viewProfile(post.author)
-                                }
+                                Modifier.clickable { viewModel.viewProfile(post.author) }
                             } else Modifier
                         )
                 ) {
@@ -843,35 +688,16 @@ fun PostCard(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Icon(
-                            Icons.Default.Person,
-                            null,
-                            modifier = Modifier.size(14.dp),
-                            tint = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-                        Text(
-                            text = post.author,
-                            style = AuthorName.copy(fontWeight = FontWeight.Bold),
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
+                        Icon(Icons.Default.Person, null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                        Text(post.author, style = AuthorName.copy(fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.onPrimaryContainer)
                     }
                 }
 
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    // Delete Button for Owner
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    // Delete Button
                     if (currentUser?.username == post.author && !isDetail) {
-                        IconButton(
-                            onClick = { showDeleteDialog = true },
-                            modifier = Modifier.size(24.dp)
-                        ) {
-                            Icon(
-                                Icons.Default.Delete,
-                                contentDescription = "Delete",
-                                tint = MaterialTheme.colorScheme.error
-                            )
+                        IconButton(onClick = { showDeleteDialog = true }, modifier = Modifier.size(24.dp)) {
+                            Icon(Icons.Default.Delete, "Delete", tint = MaterialTheme.colorScheme.error)
                         }
                     }
 
@@ -886,50 +712,24 @@ fun PostCard(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            Icon(
-                                Icons.Default.Schedule,
-                                null,
-                                modifier = Modifier.size(12.dp),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                            )
-                            Text(
-                                text = formatTimestamp(post.timestamp),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                            )
+                            Icon(Icons.Default.Schedule, null, modifier = Modifier.size(12.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
+                            Text(formatTimestamp(post.timestamp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
                         }
                     }
                 }
             }
 
             Spacer(modifier = Modifier.height(12.dp))
-
-            // Title
-            Text(
-                text = post.title,
-                style = PostTitle,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.fadeInOnAppear(delayMillis = 200)
-            )
-
+            Text(post.title, style = PostTitle, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.fadeInOnAppear(delayMillis = 200))
             Spacer(modifier = Modifier.height(8.dp))
-
-            // Content
-            Text(
-                text = post.content,
-                style = PostContent,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f),
-                maxLines = if (isDetail) Int.MAX_VALUE else 3,
-                modifier = Modifier.fadeInOnAppear(delayMillis = 300)
-            )
-
+            Text(post.content, style = PostContent, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f), maxLines = if (isDetail) Int.MAX_VALUE else 3, modifier = Modifier.fadeInOnAppear(delayMillis = 300))
             Spacer(modifier = Modifier.height(16.dp))
 
+            // Cheers Button
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // Cheer button dengan animation
                 Button(
                     onClick = { viewModel?.toggleCheer(post) },
                     colors = if (hasUserCheered > 0)
@@ -940,11 +740,7 @@ fun PostCard(
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                     shape = Shapes.small
                 ) {
-                    Icon(
-                        Icons.Default.LocalBar,
-                        null,
-                        modifier = Modifier.size(18.dp)
-                    )
+                    Icon(Icons.Default.LocalBar, null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("$cheerCount Cheers")
                 }
@@ -953,59 +749,34 @@ fun PostCard(
     }
 }
 
-// --- COMMENT ITEM COMPONENT ---
+// ... existing CommentItem, AddPostDialog, formatTimestamp ...
+// (Bagian ini tidak berubah dari file asli, jadi disingkat disini untuk file output,
+// namun pastikan tetap ada jika anda copy paste.
+// Saya sertakan full di bawah ini untuk amannya)
+
 @Composable
 fun CommentItem(comment: CommentEntity, index: Int) {
     Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .fadeInOnAppear(delayMillis = 100 + (index * 50)),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
-        ),
+        modifier = Modifier.fillMaxWidth().fadeInOnAppear(delayMillis = 100 + (index * 50)),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)),
         shape = CommentCardShape,
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Surface(
-                    color = MaterialTheme.colorScheme.secondaryContainer,
-                    shape = Shapes.small
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Icon(
-                            Icons.Default.Person,
-                            null,
-                            modifier = Modifier.size(12.dp),
-                            tint = MaterialTheme.colorScheme.onSecondaryContainer
-                        )
-                        Text(
-                            text = comment.author,
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer
-                        )
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = Shapes.small) {
+                    Row(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Icon(Icons.Default.Person, null, modifier = Modifier.size(12.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer)
+                        Text(comment.author, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onSecondaryContainer)
                     }
                 }
             }
             Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = comment.content,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface
-            )
+            Text(comment.content, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
         }
     }
 }
 
-// --- ADD POST DIALOG ---
 @Composable
 fun AddPostDialog(viewModel: TavernViewModel, onDismiss: () -> Unit, onConfirm: (String, String) -> Unit) {
     var title by remember { mutableStateOf("") }
@@ -1014,85 +785,23 @@ fun AddPostDialog(viewModel: TavernViewModel, onDismiss: () -> Unit, onConfirm: 
 
     AlertDialog(
         onDismissRequest = { if (!isLoading) onDismiss() },
-        title = {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Icon(
-                    Icons.Default.HistoryEdu,
-                    null,
-                    tint = MaterialTheme.colorScheme.primary
-                )
-                Text("Share a Tale", style = SubtitleTavern)
-            }
-        },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(
-                    value = title,
-                    onValueChange = { title = it },
-                    label = { Text("Title") },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = TextFieldShape,
-                    singleLine = true,
-                    enabled = !isLoading
-                )
-                OutlinedTextField(
-                    value = body,
-                    onValueChange = { body = it },
-                    label = { Text("Your Story") },
-                    modifier = Modifier.fillMaxWidth(),
-                    maxLines = 6,
-                    shape = TextFieldShape,
-                    enabled = !isLoading
-                )
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = { if (title.isNotBlank()) onConfirm(title, body) },
-                shape = ButtonShape,
-                enabled = !isLoading && title.isNotBlank()
-            ) {
-                if (isLoading) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(20.dp),
-                        color = MaterialTheme.colorScheme.onPrimary,
-                        strokeWidth = 2.dp
-                    )
-                } else {
-                    Text("Post", style = MaterialTheme.typography.labelLarge)
-                }
-            }
-        },
-        dismissButton = {
-            TextButton(
-                onClick = onDismiss,
-                enabled = !isLoading
-            ) {
-                Text("Cancel")
-            }
-        },
+        title = { Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) { Icon(Icons.Default.HistoryEdu, null, tint = MaterialTheme.colorScheme.primary); Text("Share a Tale", style = SubtitleTavern) } },
+        text = { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) { OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("Title") }, modifier = Modifier.fillMaxWidth(), shape = TextFieldShape, singleLine = true, enabled = !isLoading); OutlinedTextField(value = body, onValueChange = { body = it }, label = { Text("Your Story") }, modifier = Modifier.fillMaxWidth(), maxLines = 6, shape = TextFieldShape, enabled = !isLoading) } },
+        confirmButton = { Button(onClick = { if (title.isNotBlank()) onConfirm(title, body) }, shape = ButtonShape, enabled = !isLoading && title.isNotBlank()) { if (isLoading) CircularProgressIndicator(modifier = Modifier.size(20.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp) else Text("Post", style = MaterialTheme.typography.labelLarge) } },
+        dismissButton = { TextButton(onClick = onDismiss, enabled = !isLoading) { Text("Cancel") } },
         shape = DialogShape,
         containerColor = MaterialTheme.colorScheme.surface
     )
 }
 
-// Helper function to format timestamp
 private fun formatTimestamp(timestamp: Long): String {
     val now = System.currentTimeMillis()
     val diff = now - timestamp
-
     return when {
-        diff < 60000 -> "Just now" // Less than 1 minute
-        diff < 3600000 -> "${diff / 60000}m ago" // Less than 1 hour
-        diff < 86400000 -> "${diff / 3600000}h ago" // Less than 1 day
-        diff < 604800000 -> "${diff / 86400000}d ago" // Less than 1 week
-        else -> {
-            // More than 1 week, show date
-            val sdf = SimpleDateFormat("MMM dd", Locale.getDefault())
-            sdf.format(Date(timestamp))
-        }
+        diff < 60000 -> "Just now"
+        diff < 3600000 -> "${diff / 60000}m ago"
+        diff < 86400000 -> "${diff / 3600000}h ago"
+        diff < 604800000 -> "${diff / 86400000}d ago"
+        else -> { val sdf = SimpleDateFormat("MMM dd", Locale.getDefault()); sdf.format(Date(timestamp)) }
     }
 }
