@@ -1,22 +1,23 @@
 package com.example.tavern.ui
 
+import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
-import androidx.compose.material.icons.filled.HistoryEdu
-import androidx.compose.material.icons.filled.LocalBar
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
@@ -30,39 +31,74 @@ import com.example.tavern.data.PostEntity
 import com.example.tavern.data.TavernDatabase
 import com.example.tavern.data.TavernRepository
 import com.example.tavern.data.CommentEntity
-import androidx.compose.material.icons.automirrored.filled.Send
+import com.example.tavern.ui.theme.*
+import java.text.SimpleDateFormat
+import java.util.*
 
 @Composable
 fun TavernApp() {
     val context = LocalContext.current
     val database = TavernDatabase.getDatabase(context)
-    val repository = TavernRepository(database.postDao(), database.userDao(), database.commentDao())
+    val repository = TavernRepository(database.postDao(), database.userDao(), database.commentDao(), database.cheerDao())
     val viewModel: TavernViewModel = viewModel(factory = TavernViewModelFactory(repository))
 
     val currentUser by viewModel.currentUser.collectAsState()
     val selectedPost by viewModel.selectedPost.collectAsState()
-
+    val profileUser by viewModel.profileUser.collectAsState()
 
     // State to toggle between Login and Register screens
     var isRegistering by remember { mutableStateOf(false) }
 
-    // --- NAVIGATION LOGIC ---
-    if (currentUser != null) {
-        // If logged in, check if we are looking at a specific post
-        if (selectedPost != null) {
-            PostDetailScreen(viewModel) // <--- NEW SCREEN
-        } else {
-            TavernFeedScreen(viewModel, currentUser!!.username)
-        }
-    } else {
-        // If not logged in, decide which form to show
-        if (isRegistering) {
-            RegisterScreen(
+    // --- NAVIGATION LOGIC WITH ANIMATIONS ---
+    AnimatedContent(
+        targetState = when {
+            // FIX NAVIGASI: Cek Detail (selectedPost) DULUAN sebelum Profile
+            // Ini memastikan jika kita klik post di halaman profile, kita pindah ke detail
+            currentUser != null && selectedPost != null -> "detail"
+            currentUser != null && profileUser != null -> "profile"
+            currentUser != null -> "feed"
+            isRegistering -> "register"
+            else -> "login"
+        },
+        transitionSpec = {
+            slideInHorizontally(
+                initialOffsetX = { it },
+                animationSpec = tween(400, easing = FastOutSlowInEasing)
+            ) + fadeIn(animationSpec = tween(400)) togetherWith
+                    slideOutHorizontally(
+                        targetOffsetX = { -it / 3 },
+                        animationSpec = tween(400, easing = FastOutSlowInEasing)
+                    ) + fadeOut(animationSpec = tween(400))
+        },
+        label = "screen_transition"
+    ) { screen ->
+        when (screen) {
+            "profile" -> {
+                ProfileScreen(
+                    viewModel = viewModel,
+                    repository = repository, // Pass repository
+                    onBack = { viewModel.exitProfile() },
+                    onPostClick = { post ->
+                        viewModel.selectPost(post)
+                    }
+                )
+            }
+            "detail" -> PostDetailScreen(
+                viewModel = viewModel,
+                repository = repository,
+                onBack = {
+                    // Cukup kosongkan post.
+                    // Jika kita datang dari profil, 'profileUser' masih ada,
+                    // jadi blok 'when' di atas otomatis akan memilih "profile" setelah ini.
+                    viewModel.selectPost(null)
+                }
+            )
+            "feed" -> TavernFeedScreen(viewModel, repository, currentUser!!.username)
+            "register" -> RegisterScreen(
                 viewModel = viewModel,
                 onBackToLogin = { isRegistering = false }
             )
-        } else {
-            LoginScreen(
+            "login" -> LoginScreen(
                 viewModel = viewModel,
                 onNavigateToRegister = { isRegistering = true }
             )
@@ -76,132 +112,326 @@ fun LoginScreen(viewModel: TavernViewModel, onNavigateToRegister: () -> Unit) {
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     val error by viewModel.loginError.collectAsState()
+    val isLoading by viewModel.isLoading.collectAsState()
+    var triggerShake by remember { mutableStateOf(false) }
 
-    Column(
+    LaunchedEffect(error) {
+        if (error != null) {
+            triggerShake = true
+            kotlinx.coroutines.delay(500)
+            triggerShake = false
+        }
+    }
+
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background) // Tavern background color
-            .padding(32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        Icon(
-            imageVector = Icons.Default.LocalBar,
-            contentDescription = "Logo",
-            modifier = Modifier.size(80.dp),
-            tint = MaterialTheme.colorScheme.primary
-        )
-        Spacer(modifier = Modifier.height(16.dp))
-        Text(
-            "The Tavern Gate",
-            style = MaterialTheme.typography.headlineMedium,
-            fontFamily = FontFamily.Serif,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onBackground
-        )
-        Spacer(modifier = Modifier.height(32.dp))
-
-        // Username Input
-        OutlinedTextField(
-            value = username,
-            onValueChange = { username = it },
-            label = { Text("Traveller's Name") },
-            leadingIcon = { Icon(Icons.Default.Person, null) },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth()
-        )
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Password Input
-        OutlinedTextField(
-            value = password,
-            onValueChange = { password = it },
-            label = { Text("Secret Word") },
-            leadingIcon = { Icon(Icons.Default.Lock, null) },
-            visualTransformation = PasswordVisualTransformation(),
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth()
-        )
-
-        // Error Message
-        if (error != null) {
-            Spacer(modifier = Modifier.height(16.dp))
-            Text(
-                text = error ?: "",
-                color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Bold
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        MaterialTheme.colorScheme.background,
+                        MaterialTheme.colorScheme.surface
+                    )
+                )
             )
-        }
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        // Login Button
-        Button(
-            onClick = { viewModel.login(username, password) },
+    ) {
+        Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .height(50.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-            shape = RoundedCornerShape(8.dp)
+                .fillMaxSize()
+                .padding(32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
         ) {
-            Text("Enter Tavern", fontSize = 18.sp, fontFamily = FontFamily.Serif)
-        }
+            Icon(
+                imageVector = Icons.Default.LocalBar,
+                contentDescription = "Logo",
+                modifier = Modifier
+                    .size(80.dp)
+                    .pulseAnimation(minScale = 0.95f, maxScale = 1.05f, durationMillis = 2000),
+                tint = MaterialTheme.colorScheme.primary
+            )
 
-        Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
-        // Switch to Register
-        TextButton(onClick = onNavigateToRegister) {
-            Text("New here? Sign the Guestbook (Register)")
+            Text(
+                "The Tavern Gate",
+                style = TitleTavern,
+                color = MaterialTheme.colorScheme.onBackground,
+                modifier = Modifier.fadeInOnAppear(delayMillis = 100)
+            )
+
+            Text(
+                "Enter your legend",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
+                fontStyle = FontStyle.Italic,
+                modifier = Modifier.fadeInOnAppear(delayMillis = 200)
+            )
+
+            Spacer(modifier = Modifier.height(48.dp))
+
+            OutlinedTextField(
+                value = username,
+                onValueChange = { username = it },
+                label = { Text("Traveller's Name") },
+                leadingIcon = {
+                    Icon(Icons.Default.Person, null, tint = MaterialTheme.colorScheme.primary)
+                },
+                singleLine = true,
+                enabled = !isLoading,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .slideInFromBottomOnAppear(delayMillis = 300),
+                shape = TextFieldShape,
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                    unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                )
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            OutlinedTextField(
+                value = password,
+                onValueChange = { password = it },
+                label = { Text("Secret Word") },
+                leadingIcon = {
+                    Icon(Icons.Default.Lock, null, tint = MaterialTheme.colorScheme.primary)
+                },
+                visualTransformation = PasswordVisualTransformation(),
+                singleLine = true,
+                enabled = !isLoading,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .slideInFromBottomOnAppear(delayMillis = 400)
+                    .shakeAnimation(triggerShake),
+                shape = TextFieldShape,
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                    unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                )
+            )
+
+            AnimatedVisibility(
+                visible = error != null,
+                enter = slideInVertically() + fadeIn(),
+                exit = slideOutVertically() + fadeOut()
+            ) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer
+                    ),
+                    shape = Shapes.small
+                ) {
+                    Text(
+                        text = error ?: "",
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(16.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(32.dp))
+
+            Button(
+                onClick = { viewModel.login(username, password) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp)
+                    .slideInFromBottomOnAppear(delayMillis = 500),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary
+                ),
+                shape = ButtonShape,
+                elevation = ButtonDefaults.buttonElevation(
+                    defaultElevation = 4.dp,
+                    pressedElevation = 8.dp
+                ),
+                enabled = !isLoading
+            ) {
+                if (isLoading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(24.dp),
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        strokeWidth = 2.dp
+                    )
+                } else {
+                    Text(
+                        "Enter Tavern",
+                        style = ButtonText,
+                        color = MaterialTheme.colorScheme.onPrimary
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            TextButton(
+                onClick = onNavigateToRegister,
+                modifier = Modifier.fadeInOnAppear(delayMillis = 600),
+                enabled = !isLoading
+            ) {
+                Text(
+                    "New here? Sign the Guestbook (Register)",
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Medium
+                )
+            }
         }
     }
 }
 
-
-
-// --- SCREEN 3: FEED (The Tavern Board) ---
-// (This remains largely the same, just keeping it here for completeness)
+// --- SCREEN 2: FEED (The Tavern Board) ---
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TavernFeedScreen(viewModel: TavernViewModel, username: String) {
+fun TavernFeedScreen(viewModel: TavernViewModel, repository: TavernRepository, username: String) {
     val posts by viewModel.uiState.collectAsState()
+    val searchQuery by viewModel.searchQuery.collectAsState()
+    val isSearching by viewModel.isSearching.collectAsState()
+    val searchResults by viewModel.searchResults.collectAsState()
     var showDialog by remember { mutableStateOf(false) }
+    var showSearchBar by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
                 title = {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("The Tavern Board", fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold)
-                        Text("Welcome, $username", style = MaterialTheme.typography.labelSmall, color = Color(0xFFEFEBE9))
+                    if (showSearchBar) {
+                        OutlinedTextField(
+                            value = searchQuery,
+                            onValueChange = { viewModel.updateSearchQuery(it) },
+                            placeholder = {
+                                Text("Search posts...", color = Color.Black.copy(alpha = 0.6f))
+                            },
+                            modifier = Modifier.fillMaxWidth(0.9f).height(48.dp),
+                            singleLine = true,
+                            leadingIcon = {
+                                Icon(Icons.Default.Search, null, tint = Color.Black.copy(alpha = 0.7f))
+                            },
+                            trailingIcon = {
+                                IconButton(onClick = {
+                                    viewModel.clearSearch()
+                                    showSearchBar = false
+                                }) {
+                                    Icon(Icons.Default.Close, null, tint = Color.Black.copy(alpha = 0.7f))
+                                }
+                            },
+                            shape = TextFieldShape,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedContainerColor = Color.White,
+                                unfocusedContainerColor = Color.White,
+                                focusedBorderColor = Color.Black.copy(alpha = 0.5f),
+                                unfocusedBorderColor = Color.Black.copy(alpha = 0.3f),
+                                focusedTextColor = Color.Black,
+                                unfocusedTextColor = Color.Black,
+                                cursorColor = Color.Black
+                            )
+                        )
+                    } else {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.fadeInOnAppear(delayMillis = 100)
+                        ) {
+                            Text(
+                                "The Tavern Board",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontFamily = FontFamily.Serif,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                "Welcome, $username",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f)
+                            )
+                        }
+                    }
+                },
+                navigationIcon = {
+                    IconButton(
+                        onClick = { viewModel.viewProfile(username) },
+                        modifier = Modifier.bounceOnAppear()
+                    ) {
+                        Icon(Icons.Default.Person, "Profile", tint = MaterialTheme.colorScheme.onPrimary)
                     }
                 },
                 actions = {
-                    IconButton(onClick = { viewModel.logout() }) {
-                        Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = "Logout", tint = Color.White)
+                    if (!showSearchBar) {
+                        IconButton(
+                            onClick = { showSearchBar = true },
+                            modifier = Modifier.bounceOnAppear()
+                        ) {
+                            Icon(Icons.Default.Search, "Search", tint = MaterialTheme.colorScheme.onPrimary)
+                        }
+                    }
+                    IconButton(
+                        onClick = { viewModel.logout() },
+                        modifier = Modifier.bounceOnAppear()
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.ExitToApp, "Logout", tint = MaterialTheme.colorScheme.onPrimary)
                     }
                 },
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primary,
-                    titleContentColor = Color(0xFFFFF8E1)
-                )
+                    titleContentColor = MaterialTheme.colorScheme.onPrimary
+                ),
+                modifier = Modifier.shadow(8.dp)
             )
         },
         floatingActionButton = {
             FloatingActionButton(
                 onClick = { showDialog = true },
                 containerColor = MaterialTheme.colorScheme.secondary,
-                contentColor = MaterialTheme.colorScheme.onSecondary
+                contentColor = MaterialTheme.colorScheme.onSecondary,
+                modifier = Modifier
+                    .bounceOnAppear()
+                    .pulseAnimation(minScale = 0.98f, maxScale = 1.02f, durationMillis = 1500),
+                shape = FabShape
             ) {
-                Icon(Icons.Default.HistoryEdu, contentDescription = "Write")
+                Icon(Icons.Default.HistoryEdu, "Write")
             }
         },
         containerColor = MaterialTheme.colorScheme.background
     ) { padding ->
-        PostList(posts = posts, viewModel = viewModel, modifier = Modifier.padding(padding))
+        val displayPosts = if (isSearching) searchResults else posts
+
+        Column(modifier = Modifier.padding(padding).fillMaxSize()) {
+            if (isSearching) {
+                Surface(
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(Icons.Default.Search, null, tint = MaterialTheme.colorScheme.secondary)
+                        Text(
+                            "Found ${searchResults.size} posts matching \"$searchQuery\"",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                    }
+                }
+            }
+
+            PostList(
+                posts = displayPosts,
+                viewModel = viewModel,
+                repository = repository,
+                modifier = Modifier.weight(1f),
+                emptyMessage = if (isSearching) "No posts found" else "No tales yet..."
+            )
+        }
 
         if (showDialog) {
             AddPostDialog(
+                viewModel = viewModel,
                 onDismiss = { showDialog = false },
                 onConfirm = { title, body ->
                     viewModel.createPost(title, body)
@@ -212,176 +442,366 @@ fun TavernFeedScreen(viewModel: TavernViewModel, username: String) {
     }
 }
 
+// --- SCREEN 3: POST DETAIL (Discussion) ---
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PostDetailScreen(viewModel: TavernViewModel) {
+fun PostDetailScreen(viewModel: TavernViewModel, repository: TavernRepository, onBack: () -> Unit) {
     val post = viewModel.selectedPost.collectAsState().value ?: return
     val comments by viewModel.currentComments.collectAsState()
+    val isLoading by viewModel.isLoading.collectAsState()
     var newCommentText by remember { mutableStateOf("") }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Discussion", fontFamily = FontFamily.Serif) },
+                title = {
+                    Text(
+                        "Discussion",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontFamily = FontFamily.Serif,
+                        modifier = Modifier.fadeInOnAppear(delayMillis = 100)
+                    )
+                },
                 navigationIcon = {
-                    IconButton(onClick = { viewModel.selectPost(null) }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
+                    IconButton(onClick = onBack, modifier = Modifier.bounceOnAppear()) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = MaterialTheme.colorScheme.onSurface)
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface),
+                modifier = Modifier.shadow(4.dp)
             )
         },
         bottomBar = {
-            Surface(tonalElevation = 2.dp) {
+            Surface(
+                tonalElevation = 8.dp,
+                shadowElevation = 8.dp,
+                shape = BottomBarShape,
+                modifier = Modifier.slideInFromBottomOnAppear(delayMillis = 200)
+            ) {
                 Row(
-                    modifier = Modifier.padding(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    modifier = Modifier.padding(12.dp).fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     OutlinedTextField(
                         value = newCommentText,
                         onValueChange = { newCommentText = it },
-                        placeholder = { Text("Add a comment...") },
+                        placeholder = { Text("Add your voice...") },
                         modifier = Modifier.weight(1f),
-                        maxLines = 3
+                        maxLines = 3,
+                        enabled = !isLoading,
+                        shape = TextFieldShape,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = MaterialTheme.colorScheme.primary,
+                            unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                        )
                     )
-                    IconButton(onClick = {
-                        if (newCommentText.isNotBlank()) {
-                            viewModel.addComment(newCommentText)
-                            newCommentText = ""
+                    FloatingActionButton(
+                        onClick = {
+                            if (newCommentText.isNotBlank()) {
+                                viewModel.addComment(newCommentText)
+                                newCommentText = ""
+                            }
+                        },
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.size(56.dp)
+                    ) {
+                        if (isLoading) {
+                            CircularProgressIndicator(modifier = Modifier.size(24.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
+                        } else {
+                            Icon(Icons.AutoMirrored.Filled.Send, "Send", modifier = Modifier.size(24.dp))
                         }
-                    }) {
-                        Icon(Icons.AutoMirrored.Filled.Send, "Send", tint = MaterialTheme.colorScheme.primary)
                     }
                 }
             }
         }
     ) { padding ->
         LazyColumn(
-            modifier = Modifier
-                .padding(padding)
-                .fillMaxSize()
-                .background(MaterialTheme.colorScheme.background),
-            contentPadding = PaddingValues(16.dp)
+            modifier = Modifier.padding(padding).fillMaxSize().background(MaterialTheme.colorScheme.background),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             item {
-                PostCard(post, onClick = {}) // Show post, but no click action needed here
-                Spacer(modifier = Modifier.height(16.dp))
-                Text("Comments", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                PostCard(post = post, onClick = {}, isDetail = true, viewModel = viewModel, repository = repository)
+                Spacer(modifier = Modifier.height(8.dp))
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f), thickness = 1.dp)
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fadeInOnAppear(delayMillis = 300)
+                ) {
+                    Icon(Icons.Default.HistoryEdu, null, tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(20.dp))
+                    Text(
+                        "Voices (${comments.size})",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onBackground
+                    )
+                }
                 Spacer(modifier = Modifier.height(8.dp))
             }
 
             if (comments.isEmpty()) {
-                item { Text("No voices yet. Be the first!", fontStyle = FontStyle.Italic, color = Color.Gray) }
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth().fadeInOnAppear(delayMillis = 400),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                        shape = Shapes.medium
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(32.dp).fillMaxWidth(),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Icon(Icons.Default.HistoryEdu, null, tint = MaterialTheme.colorScheme.outline, modifier = Modifier.size(48.dp))
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text("No voices yet...", fontStyle = FontStyle.Italic, color = MaterialTheme.colorScheme.outline, style = MaterialTheme.typography.bodyLarge)
+                            Text("Be the first to speak!", color = MaterialTheme.colorScheme.outline.copy(alpha = 0.7f), style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
             } else {
-                items(comments) { comment ->
-                    CommentItem(comment)
+                itemsIndexed(comments) { index, comment ->
+                    CommentItem(comment, index)
                 }
             }
         }
     }
 }
 
+// --- POST LIST COMPONENT ---
 @Composable
-
-fun PostList(posts: List<PostEntity>, viewModel: TavernViewModel, modifier: Modifier = Modifier) {
+fun PostList(
+    posts: List<PostEntity>,
+    viewModel: TavernViewModel,
+    repository: TavernRepository,
+    modifier: Modifier = Modifier,
+    emptyMessage: String = "No tales yet..."
+) {
     if (posts.isEmpty()) {
         Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Icon(Icons.Default.LocalBar, null, tint = Color.Gray, modifier = Modifier.size(48.dp))
-                Spacer(modifier = Modifier.height(8.dp))
-                Text("No tales yet...", fontFamily = FontFamily.Serif, color = Color.Gray)
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.bounceOnAppear()) {
+                Icon(Icons.Default.LocalBar, null, tint = MaterialTheme.colorScheme.outline, modifier = Modifier.size(64.dp).pulseAnimation())
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(emptyMessage, style = MaterialTheme.typography.headlineSmall, fontFamily = FontFamily.Serif, color = MaterialTheme.colorScheme.outline)
+                if (emptyMessage == "No tales yet...") {
+                    Text("Be the first to share your story!", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.outline.copy(alpha = 0.7f))
+                }
             }
         }
     } else {
         LazyColumn(
             modifier = modifier.fillMaxSize(),
             contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            items(posts, key = { it.id }) { post ->
-                PostCard(post, onClick = { viewModel.selectPost(post) })
+            itemsIndexed(items = posts, key = { _, post -> post.id }) { index, post ->
+                PostCard(
+                    post = post,
+                    onClick = { viewModel.selectPost(post) },
+                    modifier = Modifier.fadeInOnAppear(delayMillis = index * 50),
+                    viewModel = viewModel,
+                    repository = repository
+                )
             }
         }
     }
 }
 
+// --- POST CARD COMPONENT ---
 @Composable
-fun PostCard(post: PostEntity, onClick: () -> Unit) {
+fun PostCard(
+    post: PostEntity,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    isDetail: Boolean = false,
+    viewModel: TavernViewModel? = null,
+    repository: TavernRepository
+) {
+    var showDeleteDialog by remember { mutableStateOf(false) }
+    val currentUser = viewModel?.currentUser?.collectAsState()?.value
+
+    // Cheer Count Logic
+    val cheerCount by remember(post.id) {
+        repository.getCheerCount(post.id)
+    }.collectAsState(initial = 0)
+
+    // User Cheered Logic
+    val hasUserCheered by remember(post.id) {
+        val username = viewModel?.currentUser?.value?.username ?: ""
+        repository.hasUserCheered(username, post.id)
+    }.collectAsState(initial = 0)
+
+    if (showDeleteDialog && viewModel != null) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            title = { Text("Delete Post?") },
+            text = { Text("Are you sure you want to delete this tale? This action cannot be undone.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.deletePost(post)
+                        showDeleteDialog = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
     Card(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick),
+            .then(if (!isDetail) Modifier.clickable(onClick = onClick) else Modifier),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
-        shape = RoundedCornerShape(4.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp, pressedElevation = if (!isDetail) 8.dp else 4.dp),
+        shape = PostCardShape
+    ) {
+        Column(modifier = Modifier.padding(20.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Author
+                Surface(
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    shape = Shapes.small,
+                    modifier = Modifier
+                        .fadeInOnAppear(delayMillis = 100)
+                        .then(
+                            if (viewModel != null && !isDetail) {
+                                Modifier.clickable { viewModel.viewProfile(post.author) }
+                            } else Modifier
+                        )
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(Icons.Default.Person, null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                        Text(post.author, style = AuthorName.copy(fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.onPrimaryContainer)
+                    }
+                }
+
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    // Delete Button
+                    if (currentUser?.username == post.author && !isDetail) {
+                        IconButton(onClick = { showDeleteDialog = true }, modifier = Modifier.size(24.dp)) {
+                            Icon(Icons.Default.Delete, "Delete", tint = MaterialTheme.colorScheme.error)
+                        }
+                    }
+
+                    // Timestamp
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        shape = Shapes.small,
+                        modifier = Modifier.fadeInOnAppear(delayMillis = 150)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(Icons.Default.Schedule, null, modifier = Modifier.size(12.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
+                            Text(formatTimestamp(post.timestamp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(post.title, style = PostTitle, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.fadeInOnAppear(delayMillis = 200))
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(post.content, style = PostContent, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f), maxLines = if (isDetail) Int.MAX_VALUE else 3, modifier = Modifier.fadeInOnAppear(delayMillis = 300))
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Cheers Button
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Button(
+                    onClick = { viewModel?.toggleCheer(post) },
+                    colors = if (hasUserCheered > 0)
+                        ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+                    else
+                        ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.secondary),
+                    modifier = Modifier.fadeInOnAppear(delayMillis = 400),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                    shape = Shapes.small
+                ) {
+                    Icon(Icons.Default.LocalBar, null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("$cheerCount Cheers")
+                }
+            }
+        }
+    }
+}
+
+// ... existing CommentItem, AddPostDialog, formatTimestamp ...
+// (Bagian ini tidak berubah dari file asli, jadi disingkat disini untuk file output,
+// namun pastikan tetap ada jika anda copy paste.
+// Saya sertakan full di bawah ini untuk amannya)
+
+@Composable
+fun CommentItem(comment: CommentEntity, index: Int) {
+    Card(
+        modifier = Modifier.fillMaxWidth().fadeInOnAppear(delayMillis = 100 + (index * 50)),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)),
+        shape = CommentCardShape,
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Text(text = "Tale by ${post.author}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, fontStyle = FontStyle.Italic)
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(text = post.title, style = MaterialTheme.typography.headlineSmall, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold)
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(text = post.content, style = MaterialTheme.typography.bodyLarge, fontFamily = FontFamily.Serif)
-            Spacer(modifier = Modifier.height(12.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.LocalBar, null, tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(4.dp))
-                Text(text = "${post.upvotes} Cheers", color = MaterialTheme.colorScheme.secondary, fontWeight = FontWeight.Bold)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = Shapes.small) {
+                    Row(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Icon(Icons.Default.Person, null, modifier = Modifier.size(12.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer)
+                        Text(comment.author, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                    }
+                }
             }
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(comment.content, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
         }
     }
 }
 
 @Composable
-fun CommentItem(comment: CommentEntity) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
-        shape = RoundedCornerShape(8.dp)
-    ) {
-        Column(modifier = Modifier.padding(vertical = 8.dp, horizontal = 12.dp)) {
-            Text(
-                text = comment.author,
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.secondary
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = comment.content,
-                style = MaterialTheme.typography.bodyMedium
-            )
-        }
-    }
-}
-
-@Composable
-fun AddPostDialog(onDismiss: () -> Unit, onConfirm: (String, String) -> Unit) {
+fun AddPostDialog(viewModel: TavernViewModel, onDismiss: () -> Unit, onConfirm: (String, String) -> Unit) {
     var title by remember { mutableStateOf("") }
     var body by remember { mutableStateOf("") }
+    val isLoading by viewModel.isLoading.collectAsState()
+
     AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Share a Tale", fontFamily = FontFamily.Serif) },
-        text = {
-            Column {
-                OutlinedTextField(
-                    value = title,
-                    onValueChange = { title = it },
-                    label = { Text("Title") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = body,
-                    onValueChange = { body = it },
-                    label = { Text("Story") },
-                    modifier = Modifier.fillMaxWidth(),
-                    maxLines = 5
-                )
-            }
-        },
-        confirmButton = {
-            Button(onClick = { if (title.isNotBlank()) onConfirm(title, body) }) { Text("Post") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+        onDismissRequest = { if (!isLoading) onDismiss() },
+        title = { Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) { Icon(Icons.Default.HistoryEdu, null, tint = MaterialTheme.colorScheme.primary); Text("Share a Tale", style = SubtitleTavern) } },
+        text = { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) { OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("Title") }, modifier = Modifier.fillMaxWidth(), shape = TextFieldShape, singleLine = true, enabled = !isLoading); OutlinedTextField(value = body, onValueChange = { body = it }, label = { Text("Your Story") }, modifier = Modifier.fillMaxWidth(), maxLines = 6, shape = TextFieldShape, enabled = !isLoading) } },
+        confirmButton = { Button(onClick = { if (title.isNotBlank()) onConfirm(title, body) }, shape = ButtonShape, enabled = !isLoading && title.isNotBlank()) { if (isLoading) CircularProgressIndicator(modifier = Modifier.size(20.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp) else Text("Post", style = MaterialTheme.typography.labelLarge) } },
+        dismissButton = { TextButton(onClick = onDismiss, enabled = !isLoading) { Text("Cancel") } },
+        shape = DialogShape,
+        containerColor = MaterialTheme.colorScheme.surface
     )
+}
+
+private fun formatTimestamp(timestamp: Long): String {
+    val now = System.currentTimeMillis()
+    val diff = now - timestamp
+    return when {
+        diff < 60000 -> "Just now"
+        diff < 3600000 -> "${diff / 60000}m ago"
+        diff < 86400000 -> "${diff / 3600000}h ago"
+        diff < 604800000 -> "${diff / 86400000}d ago"
+        else -> { val sdf = SimpleDateFormat("MMM dd", Locale.getDefault()); sdf.format(Date(timestamp)) }
+    }
 }
